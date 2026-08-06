@@ -3,6 +3,8 @@ import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeF
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+const HOSTED_API_URL = 'https://api.logicheroes.network/api';
+
 const args = process.argv.slice(2);
 const destinationArg = args.find((arg) => !arg.startsWith('--') && args[args.indexOf(arg) - 1]?.startsWith('--') !== true);
 const value = (name) => {
@@ -34,7 +36,15 @@ if (existsSync(destination)) {
   process.exit(1);
 }
 if (dryRun) {
-  console.log(JSON.stringify({ destination, tenantKey, displayName, source, writesSecrets: false }, null, 2));
+  console.log(JSON.stringify({
+    destination,
+    tenantKey,
+    displayName,
+    source,
+    writesSecrets: false,
+    createsEnvStub: true,
+    apiUrl: HOSTED_API_URL,
+  }, null, 2));
   process.exit(0);
 }
 
@@ -54,7 +64,21 @@ try {
     .replace('<tenant-key>', tenantKey)
     .replace('<display-name>', displayName);
   writeFileSync(identityPath, identity);
-  writeFileSync(join(staging, 'README.md'), `# Heroes peer: ${displayName}\n\nTenant key: \`${tenantKey}\`. Configure a local ignored \`self/.env\` from \`self/.env.example\`, then ask an agent with heroes-agent installed to operate from this directory.\n`);
+
+  const envExample = readFileSync(join(staging, 'self', '.env.example'), 'utf8');
+  const envStub = envExample
+    .replace(/^API_URL=.*$/m, `API_URL=${HOSTED_API_URL}`)
+    .replace(/^API_KEY=.*$/m, 'API_KEY=');
+  writeFileSync(join(staging, 'self', '.env'), envStub);
+
+  writeFileSync(
+    join(staging, 'README.md'),
+    `# Heroes peer: ${displayName}\n\n` +
+      `Tenant key: \`${tenantKey}\`.\n\n` +
+      `Open ignored \`self/.env\`, set \`API_KEY\` for this tenant, and keep \`API_URL\` as \`${HOSTED_API_URL}\` ` +
+      `unless you run local Heroes (\`http://localhost:3401/api\`). ` +
+      `Then ask an agent with heroes-agent installed to operate from this directory.\n`,
+  );
   renameSync(staging, destination);
 } catch (error) {
   rmSync(staging, { recursive: true, force: true });
