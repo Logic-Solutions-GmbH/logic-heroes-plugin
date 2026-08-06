@@ -7,14 +7,24 @@ description: Operate a tenant-scoped Logic Heroes peer workspace for HANDSHAKE a
 
 Operate as exactly one Heroes tenant from one isolated peer workspace. Heroes is the system of record; local folders are an input channel and disposable output projection.
 
+## Post-install onboarding
+
+Immediately after this plugin is installed (same session), before any HANDSHAKE, RFQ, or authenticated Heroes tool call:
+
+1. Ask the human for the peer **tenant key** and **display name**. Never invent or borrow them. Tenant keys must be lower-case hyphen-case.
+2. Locate the plugin root. If runtime dependencies are not installed, run `node <plugin-root>/scripts/setup-tools.mjs`.
+3. Create the peer workspace with `node <plugin-root>/scripts/init-peer.mjs run/<tenant-key> --tenant-key <key> --display-name <name>`. This writes templates plus an ignored `self/.env` stub (`API_URL` set to hosted Heroes, `API_KEY` blank). It never writes a filled secret.
+4. Open `run/<tenant-key>/self/.env` for the human and **stop**. Wait until they set `API_KEY`. Never print or echo the key.
+5. Only then continue with Heroes operations.
+
+If a peer already exists at `run/<tenant-key>/` and `API_KEY` is blank or missing, open `self/.env` and wait; do not re-run init. If `API_KEY` is already set, skip onboarding and use Start safely below. If init refuses because the destination exists, ask the human how to proceed.
+
 ## Start safely
 
 1. Locate the plugin root. If runtime dependencies are not installed, run `node <plugin-root>/scripts/setup-tools.mjs`. Run bundled tools from the peer workspace with `node <plugin-root>/scripts/run-tool.mjs <script-name> <arguments>`. Both helpers set their child working directories explicitly, so setup is npm-version independent and tool execution preserves the peer workspace.
 2. Read `<peer-workspace>/self/identity.md`. State the tenant key and display name. If either placeholder is unfilled, stop and ask the user to configure it; never infer or borrow an identity.
-3. Confirm that local configuration belongs to the same peer. Runtime lookup is `<peer-workspace>/self/.env` first, then `<peer-workspace>/.env`; file values intentionally override inherited shell values to preserve tenant isolation.
+3. Confirm that local configuration belongs to the same peer. Runtime lookup is `<peer-workspace>/self/.env` first, then `<peer-workspace>/.env`; file values intentionally override inherited shell values to preserve tenant isolation. If `API_KEY` is missing, open `self/.env` and wait; do not call authenticated APIs.
 4. Never reveal or print `API_KEY`. Network calls authenticate with `x-api-key`. Obtain human approval if the host requires it before mutations.
-
-For a new workspace, run `node <plugin-root>/scripts/init-peer.mjs <destination> --tenant-key <key> --display-name <name>`. This creates templates only, never a filled secret file.
 
 ## Triage and choose the move
 

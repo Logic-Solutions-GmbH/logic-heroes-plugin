@@ -87,7 +87,7 @@ export function loadConfig(): Config {
 export function requireApiKey(config: Config): string {
   if (config.apiKey) return config.apiKey;
   throw new Error(
-    'No API_KEY set. Copy self/.env.example to self/.env and fill in this peer\'s Heroes API key.',
+    'No API_KEY set. Open self/.env and fill in this peer\'s Heroes API key.',
   );
 }
 
