@@ -1,0 +1,3 @@
+# Counterparty folders are created here, one per tenant-key I work with.
+# Each holds:  intake/  (triggers they send me)  +  context/  (standing notes)  +  intake/processed/
+# The agent creates a new one on first contact (see root ../intake/).

@@ -1,0 +1,4 @@
+# Root intake = catch-all for FIRST CONTACT from an unknown sender only.
+# The agent reads a document here, identifies the sender, creates
+# ../counterparties/<their-key>/, and moves the document into that counterparty's intake/.
+# Everything after first contact goes straight into the counterparty's own intake/.

@@ -1,0 +1,23 @@
+{
+  "name": "heroes-agent",
+  "version": "0.1.0",
+  "description": "Operate a tenant-scoped Logic Heroes peer for HANDSHAKE and solicited RFQ workflows.",
+  "author": {
+    "name": "LogicSolutionsGmbH"
+  },
+  "keywords": ["logistics", "rfq", "handshake", "heroes"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Heroes Agent",
+    "shortDescription": "Run tenant-scoped Heroes logistics workflows.",
+    "longDescription": "Triage logistics documents, run HANDSHAKE and solicited RFQ railways, quote from local rates, and monitor replies.",
+    "developerName": "LogicSolutionsGmbH",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Write"],
+    "defaultPrompt": [
+      "Set up a Heroes peer workspace for my tenant.",
+      "Triage this intake document and start a handshake.",
+      "Find a filed rate and respond to this RFQ."
+    ]
+  }
+}

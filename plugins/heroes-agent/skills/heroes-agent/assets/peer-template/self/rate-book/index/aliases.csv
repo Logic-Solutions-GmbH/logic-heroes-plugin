@@ -1,0 +1,15 @@
+type,alias,canonical
+port,Rotterdam,NLRTM
+port,Shanghai,CNSHA
+port,New York,USNYC
+port,Hamburg,DEHAM
+port,Antwerp,BEANR
+carrier,Maersk,MAEU
+carrier,Maersk Line,MAEU
+carrier,Hapag Lloyd,HLCU
+carrier,Hapag-Lloyd,HLCU
+equipment,40HQ,40HC
+equipment,40' High Cube,40HC
+equipment,40 High Cube,40HC
+equipment,20',20GP
+equipment,20 DV,20GP
