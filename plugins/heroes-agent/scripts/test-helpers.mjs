@@ -34,6 +34,9 @@ try {
   assert.doesNotMatch(envText, /^API_KEY=.+$/m);
   assert.equal(existsSync(join(destination, '.env')), false);
 
+  const peerIgnore = readFileSync(join(destination, '.gitignore'), 'utf8');
+  assert.match(peerIgnore, /^self\/\.env$/m);
+
   const peerReadme = readFileSync(join(destination, 'README.md'), 'utf8');
   assert.match(peerReadme, /self\/\.env/);
   assert.match(peerReadme, /API_KEY/);

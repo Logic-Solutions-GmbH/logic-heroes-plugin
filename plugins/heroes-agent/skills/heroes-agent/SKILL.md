@@ -17,13 +17,13 @@ Immediately after this plugin is installed (same session), before any HANDSHAKE,
 4. Open `run/<tenant-key>/self/.env` for the human and **stop**. Wait until they set `API_KEY`. Never print or echo the key.
 5. Only then continue with Heroes operations.
 
-If a peer already exists at `run/<tenant-key>/` and `API_KEY` is blank or missing, open `self/.env` and wait; do not re-run init. If `API_KEY` is already set, skip onboarding and use Start safely below. If init refuses because the destination exists, ask the human how to proceed.
+If a peer already exists at `run/<tenant-key>/`, do not re-run init. If `self/.env` is missing (older peer), copy `self/.env.example` to `self/.env`, set `API_URL` to `https://api.logicheroes.network/api`, leave `API_KEY` blank, then open `self/.env` and wait. If `API_KEY` is blank or missing, open `self/.env` and wait. If `API_KEY` is already set, skip onboarding and use Start safely below. If init refuses because the destination exists, ask the human how to proceed.
 
 ## Start safely
 
 1. Locate the plugin root. If runtime dependencies are not installed, run `node <plugin-root>/scripts/setup-tools.mjs`. Run bundled tools from the peer workspace with `node <plugin-root>/scripts/run-tool.mjs <script-name> <arguments>`. Both helpers set their child working directories explicitly, so setup is npm-version independent and tool execution preserves the peer workspace.
 2. Read `<peer-workspace>/self/identity.md`. State the tenant key and display name. If either placeholder is unfilled, stop and ask the user to configure it; never infer or borrow an identity.
-3. Confirm that local configuration belongs to the same peer. Runtime lookup is `<peer-workspace>/self/.env` first, then `<peer-workspace>/.env`; file values intentionally override inherited shell values to preserve tenant isolation. If `API_KEY` is missing, open `self/.env` and wait; do not call authenticated APIs.
+3. Confirm that local configuration belongs to the same peer. Runtime lookup is `<peer-workspace>/self/.env` first, then `<peer-workspace>/.env`; file values intentionally override inherited shell values to preserve tenant isolation. If `self/.env` is missing, copy `self/.env.example` to `self/.env`, set `API_URL` to `https://api.logicheroes.network/api`, leave `API_KEY` blank, then open the file and wait. If `API_KEY` is missing, open `self/.env` and wait; do not call authenticated APIs.
 4. Never reveal or print `API_KEY`. Network calls authenticate with `x-api-key`. Obtain human approval if the host requires it before mutations.
 
 ## Triage and choose the move

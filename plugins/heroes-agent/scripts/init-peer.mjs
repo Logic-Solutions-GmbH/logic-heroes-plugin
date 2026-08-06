@@ -69,7 +69,7 @@ try {
   const envStub = envExample
     .replace(/^API_URL=.*$/m, `API_URL=${HOSTED_API_URL}`)
     .replace(/^API_KEY=.*$/m, 'API_KEY=');
-  writeFileSync(join(staging, 'self', '.env'), envStub);
+  writeFileSync(join(staging, 'self', '.env'), envStub, { mode: 0o600 });
 
   writeFileSync(
     join(staging, 'README.md'),

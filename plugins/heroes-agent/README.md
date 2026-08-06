@@ -113,7 +113,7 @@ node plugins/heroes-agent/scripts/init-peer.mjs temporary-peer --tenant-key smok
 node plugins/heroes-agent/scripts/validate-portability.mjs
 ```
 
-`--check` runs locked installation, TypeScript typechecking, offline runtime unit tests, and cross-platform helper integration checks from the correct working directories. The helper checks create a real nested peer destination under the operating system's temporary directory, confirm no `.env` secret is created, verify overwrite refusal, and clean up afterward.
+`--check` runs locked installation, TypeScript typechecking, offline runtime unit tests, and cross-platform helper integration checks from the correct working directories. The helper checks create a real nested peer destination under the operating system's temporary directory, confirm the `self/.env` stub is created with a blank `API_KEY`, verify overwrite refusal, and clean up afterward.
 
 From a peer workspace, use `node <plugin-root>/scripts/run-tool.mjs <script-name> <arguments>` to run a bundled TypeScript tool. The launcher keeps the peer workspace as the current directory, so `self/.env`, intake, and rate-book defaults resolve correctly. Network scripts require local credentials. `ingest-rates.ts --dry-run` and `find-rate.ts` can be tested offline.
 
