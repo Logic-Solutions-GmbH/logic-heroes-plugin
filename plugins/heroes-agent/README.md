@@ -4,6 +4,27 @@ Heroes Agent turns a local agent into one tenant-scoped logistics peer for Logic
 
 The plugin targets local Codex, Claude Code, and Cursor agents. It does not provide equivalent browser-based ChatGPT operation: that would require a hosted MCP server, OAuth/user tenancy, durable hosting, and a replacement for local filesystem intake.
 
+## Quick start (agents)
+
+Right after installing this plugin, before any Heroes operation:
+
+1. Ask the human for **tenant key** and **display name** (never invent them).
+2. If tool dependencies are missing, run `node <plugin-root>/scripts/setup-tools.mjs`.
+3. Run `node <plugin-root>/scripts/init-peer.mjs run/<tenant-key> --tenant-key <key> --display-name <name>`.
+4. Open `run/<tenant-key>/self/.env` (hosted `API_URL` is already set; `API_KEY` is blank).
+5. Stop and wait until the human sets `API_KEY`. Never print the key.
+6. Only then triage intake, drive railways, or call authenticated tools.
+
+If the peer already exists with a blank key, open `self/.env` and wait. If the key is set, skip to normal operation.
+
+## Quick start (humans)
+
+1. Install the plugin on your agent host (commands below).
+2. Tell the agent your **tenant key** and **display name**.
+3. When it opens `run/<your-tenant>/self/.env`, paste your Logic Heroes API key into `API_KEY`.
+4. Leave `API_URL` as `https://api.logicheroes.network/api` unless you run Heroes locally (`http://localhost:3401/api`).
+5. Do not commit `self/.env`. Ask the agent to continue once the key is saved.
+
 ## Repository structure
 
 ```text
@@ -17,7 +38,7 @@ plugins/heroes-agent/
     scripts/heroes-tools/        shared TypeScript runtime and offline tests
     assets/peer-template/        secret-free peer workspace skeleton
   scripts/
-    init-peer.mjs                cross-platform workspace initializer
+    init-peer.mjs                cross-platform workspace initializer (writes blank-key env stub)
     run-tool.mjs                 tool launcher that preserves peer working directory
     setup-tools.mjs              locked dependency setup and optional checks
     validate-portability.mjs     repository safety/static checks
@@ -53,22 +74,22 @@ node plugins/heroes-agent/scripts/setup-tools.mjs
 
 The helper runs the locked `npm ci` with the shared tools directory as the actual child-process working directory. This avoids npm-version-dependent `--prefix` behavior and works with `npm.cmd` on Windows.
 
-Create an isolated peer workspace:
+Create an isolated peer workspace (agents should use `run/<tenant-key>/`):
 
 ```text
 node plugins/heroes-agent/scripts/init-peer.mjs run/acme-corp --tenant-key acme-corp --display-name "Acme Corp"
 ```
 
-Copy the generated peer's `self/.env.example` to the ignored `self/.env` yourself and provide:
+`init-peer` creates an ignored `self/.env` stub automatically:
 
-- `API_URL`: the Logic Heroes API base URL. Fill it with `https://api.logicheroes.network/api` for hosted Heroes or `http://localhost:3401/api` for a local Heroes instance; do not leave it blank;
-- `API_KEY`: the API key for this peer's single tenant identity.
+- `API_URL`: set to `https://api.logicheroes.network/api` (change to `http://localhost:3401/api` only for local Heroes);
+- `API_KEY`: left blank for the human to fill.
 
 All Heroes JSON and multipart calls use `x-api-key`. Local rate ingestion and lookup do not require authentication. One workspace must contain only one tenant credential.
 
-- **Codex:** configure `self/.env` inside the peer workspace and allow network or mutation commands when prompted. Do not put values in Codex marketplace metadata.
-- **Claude Code:** configure the same ignored file. This plugin does not declare `userConfig`, because the runtime intentionally binds identity to the peer workspace. Claude's background-task behavior may help watchers but is not an authentication store.
-- **Cursor:** configure the same ignored file. This plugin does not declare Cursor `variables`, because dashboard values would not automatically populate the workspace-scoped runtime. Allow local shell/network actions according to workspace policy.
+- **Codex:** open and edit `self/.env` inside the peer workspace; allow network or mutation commands when prompted. Do not put values in Codex marketplace metadata.
+- **Claude Code:** edit the same ignored file. This plugin does not declare `userConfig`, because the runtime intentionally binds identity to the peer workspace. Claude's background-task behavior may help watchers but is not an authentication store.
+- **Cursor:** edit the same ignored file (agent should open it after init). This plugin does not declare Cursor `variables`, because dashboard values would not automatically populate the workspace-scoped runtime. Allow local shell/network actions according to workspace policy.
 
 The runtime reads `self/.env` first and root `.env` second; file values override inherited shell values to prevent cross-peer credential leakage. Never commit either filled file.
 
