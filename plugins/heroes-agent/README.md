@@ -143,7 +143,7 @@ The portability validator checks JSON/path presence, normalized manifest names, 
 
 ## Public-release checklist
 
-- [ ] Choose and add a license. No existing license was found, so this is a release blocker.
+- [x] Choose and add a license. Root `LICENSE` (Apache-2.0) and `NOTICE` are included.
 - [ ] Add real repository, homepage, support, privacy, and terms URLs only after they exist.
 - [ ] Run all offline validation commands and manual plugin discovery on all three platforms.
 - [ ] Test HANDSHAKE and RFQ against disposable Heroes tenants without exposing credentials.
@@ -153,4 +153,4 @@ The portability validator checks JSON/path presence, normalized manifest names, 
 - [ ] Confirm marketplace ownership and public submission requirements for each platform.
 - [ ] Review sample rate data before publication; it is demonstrative business data, not a live rate offer.
 
-No license field or file is included because none existed to preserve.
+The repository is licensed under Apache-2.0; see root `LICENSE` and `NOTICE`.
