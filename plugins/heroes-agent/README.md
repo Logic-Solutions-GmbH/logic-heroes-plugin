@@ -203,6 +203,22 @@ node plugins/heroes-agent/scripts/init-peer.mjs temporary-peer --tenant-key smok
 
 From the peer workspace, use `node <plugin-root>/scripts/run-tool.mjs <script-name> <arguments>` to run a bundled TypeScript tool. The launcher keeps that peer workspace as the current directory, so `self/.env`, intake, and rate-book defaults resolve there. Network scripts require local credentials.
 
+To add one document to an existing event without changing its strategy step, stage exactly one non-hidden file and run:
+
+```text
+node <plugin-root>/scripts/run-tool.mjs upload-attachment.ts <event-id> <payload-folder>
+```
+
+This command uses the multipart attachment endpoint. It is the public validation seam for an attachment-only watcher change.
+
+If journey creation succeeds but a later shipment step fails, resume on that journey without creating a duplicate:
+
+```text
+node <plugin-root>/scripts/run-tool.mjs create-shipment.ts <payload-folder> --target <tenant-key> --journey-id <journey-id>
+```
+
+The resume option skips `POST /journeys`. It creates the service and starts HANDSHAKE on the supplied journey. Use it only when service creation did not succeed; it cannot prevent a duplicate service after a later partial failure.
+
 For an offline rate test, copy `self/rate-book/sample-rates.csv` to `self/rate-book/inbox/sample-rates.csv`. Then preview ingestion, ingest it, and query the created index:
 
 ```text
@@ -270,10 +286,11 @@ Authenticated Heroes reads require a disposable tenant, its matching `API_KEY`, 
 - [x] Add the public repository and organization URLs to supported manifest fields.
 - [x] Run all current offline validation commands. See `docs/release-evidence/slice-6-offline-gate.md`.
 - [x] Test discovery on all three platforms. See `docs/release-evidence/slice-7-codex-smoke.md`, `docs/release-evidence/slice-8-claude-smoke.md`, and `docs/release-evidence/slice-9-cursor-smoke.md`.
-- [ ] Test HANDSHAKE and RFQ against disposable Heroes tenants without exposing credentials.
+- [x] Test HANDSHAKE against disposable Heroes tenants without exposing credentials. See `docs/release-evidence/slice-10-handshake.md`.
+- [ ] Test RFQ against disposable Heroes tenants without exposing credentials.
 - [x] Confirm the archive contains no `.env`, secrets, signed download URLs, `.DS_Store`, broken symlinks, or machine-local paths. See the Slice 6 evidence.
 - [x] Repeat the secret scan against the actual Git tracked-file set. The final Slice 6 gate scanned 54 tracked files.
-- [ ] Verify watcher step-change and attachment-only change behavior against the service API.
+- [x] Verify watcher step-change and attachment-only change behavior against the service API. See `docs/release-evidence/slice-10-handshake.md`.
 - [ ] Confirm marketplace ownership and public submission requirements for each platform.
 - [x] Review sample rate data before publication. The owner approved fictitious carrier identifiers and round example values in Slice 6.
 

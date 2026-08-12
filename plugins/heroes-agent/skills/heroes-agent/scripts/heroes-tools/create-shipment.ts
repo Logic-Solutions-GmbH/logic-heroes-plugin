@@ -7,7 +7,8 @@
  *
  * Usage:
  *   npx tsx create-shipment.ts <payload-folder> --target <tenantKey> \
- *       [--service-key <key>] [--name <eventName>] [--lo-code <UNLOCODE>]
+ *       [--journey-id <id>] [--service-key <key>] [--name <eventName>] \
+ *       [--lo-code <UNLOCODE>]
  *
  * Example:
  *   npx tsx create-shipment.ts ./payloads/handshake/request-service \
@@ -29,35 +30,46 @@ run(async (config) => {
   const { positional, flags } = parseArgs(process.argv.slice(2));
   const folder = positional[0];
   const target = flagString(flags, 'target');
-  const serviceKey = flagString(flags, 'service-key') ?? 'OCEAN_FREIGHT';
+  const existingJourneyId = flagString(flags, 'journey-id');
+  const serviceKey = flagString(flags, 'service-key') ?? 'ltl_pickup_origin';
   const name = flagString(flags, 'name') ?? 'Service Request';
   const loCode = flagString(flags, 'lo-code');
 
+  if (flags['journey-id'] === true) {
+    throw new Error('--journey-id requires a value');
+  }
   if (!folder || !target) {
     throw new Error(
       'Usage: npx tsx create-shipment.ts <payload-folder> --target <tenantKey> ' +
-        '[--service-key <key>] [--name <eventName>] [--lo-code <UNLOCODE>]',
+        '[--journey-id <id>] [--service-key <key>] [--name <eventName>] ' +
+        '[--lo-code <UNLOCODE>]',
     );
   }
 
   const apiKey = requireApiKey(config);
   const payload = readPayloadFolder(folder);
 
-  heading('Creating shipment journey');
-  const journey = await api<any>(config, {
-    method: 'POST',
-    path: '/journeys',
-    apiKey,
-    body: { type: 'SHIPMENT' },
-  });
-  kv('journeyId', journey.id);
+  let journeyId = existingJourneyId;
+  if (journeyId) {
+    heading('Using existing shipment journey');
+  } else {
+    heading('Creating shipment journey');
+    const journey = await api<any>(config, {
+      method: 'POST',
+      path: '/journeys',
+      apiKey,
+      body: { type: 'SHIPMENT' },
+    });
+    journeyId = journey.id;
+  }
+  kv('journeyId', journeyId);
 
   heading('Creating service');
   const service = await api<any>(config, {
     method: 'POST',
     path: '/services',
     apiKey,
-    body: { serviceKey, journeyId: journey.id },
+    body: { serviceKey, journeyId },
   });
   kv('serviceId', service.id);
   kv('serviceKey', serviceKey);

@@ -48,6 +48,7 @@ If a peer already exists at `run/<tenant-key>/`, do not re-run init. If `self/.e
 ## HANDSHAKE
 
 - Maker: inspect and stage the booking, then run `create-shipment.ts <payload-folder> --target <tenant-key>`. Record the returned IDs and watch the service.
+- If journey creation succeeds but service creation fails, rerun with `--journey-id <id>` to skip duplicate journey creation. Do not use this recovery after service creation succeeds; it cannot prevent a duplicate service.
 - Taker: discover with `list-requests.ts --direction incoming`, inspect with `service-status.ts <service-id>`, obtain the human's accept/reject decision, then run `accept-strategy.ts <service-id> --provider-ref <ref> [payload-folder]` or `reject-strategy.ts <service-id> --reason <text>`.
 - Only the target taker may accept or reject; acceptance requires `providerRef`.
 
@@ -64,6 +65,7 @@ Read `references/rfq.md` and `references/rate-book.md` before moving an RFQ.
 ## Inspect and watch
 
 - `service-status.ts <service-id> [--download]` folds current strategies, events, and attachments into one view.
+- `upload-attachment.ts <event-id> <payload-folder>` adds one multipart attachment to an existing event without changing its strategy step. Use it to prove attachment-only watcher changes.
 - After an outbound nonterminal move, run `watch-service.ts <service-id> --interval <seconds> --timeout <seconds> --download-dir <directory>`.
 - The watcher compares both strategy steps and attachment IDs because transition and upload are non-atomic. Exit `0` means change detected and new documents downloaded; exit `3` means timeout with no change. Preserve these meanings.
 - Prefer a host-supported durable/background task only when it explicitly guarantees resumption. Otherwise run in the foreground. Do not promise automatic wakeup across host restarts. On timeout, offer to rerun or report that the service is quiet; never ask the user to poll manually.

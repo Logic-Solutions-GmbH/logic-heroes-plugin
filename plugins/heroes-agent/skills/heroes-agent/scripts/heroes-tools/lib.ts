@@ -114,6 +114,23 @@ interface ApiOptions {
   query?: Record<string, string | undefined>;
 }
 
+function apiErrorDetail(value: unknown): string | undefined {
+  if (typeof value === 'string') return value.trim() || undefined;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (!value || typeof value !== 'object') return undefined;
+  if (Array.isArray(value)) {
+    const parts = value.map(apiErrorDetail).filter((part): part is string => !!part);
+    return parts.length ? parts.join('; ') : undefined;
+  }
+  const record = value as Record<string, unknown>;
+  const parts: string[] = [];
+  for (const key of ['message', 'error', 'summary', 'detail', 'details', 'title']) {
+    const part = apiErrorDetail(record[key]);
+    if (part && !parts.includes(part)) parts.push(part);
+  }
+  return parts.length ? parts.join(': ') : undefined;
+}
+
 /** Call a JSON endpoint and return the unwrapped `data` field. */
 export async function api<T = any>(config: Config, opts: ApiOptions): Promise<T> {
   const url = new URL(config.apiUrl + opts.path);
@@ -141,7 +158,10 @@ export async function api<T = any>(config: Config, opts: ApiOptions): Promise<T>
   if (!res.ok) {
     // The API returns rich messages (e.g. "Only the target tenant can accept
     // or reject a handshake request") — surface them verbatim.
-    const message = json?.message ?? json?.error ?? text ?? res.statusText;
+    const message =
+      apiErrorDetail(json?.message ?? json?.error ?? json) ??
+      (text && !json ? text : undefined) ??
+      res.statusText;
     throw new ApiError(res.status, `${res.status} ${message}`, json);
   }
 
@@ -209,7 +229,7 @@ function isTextLike(contentType: string): boolean {
 }
 
 /** Upload a payload as a multipart attachment against an already-created event. */
-async function uploadAttachment(
+export async function uploadAttachment(
   config: Config,
   apiKey: string,
   eventId: number | string,
@@ -230,13 +250,21 @@ async function uploadAttachment(
   });
   if (!res.ok) {
     const text = await res.text();
-    let msg = text;
+    let json: any;
     try {
-      msg = JSON.parse(text)?.message ?? text;
+      json = text ? JSON.parse(text) : undefined;
     } catch {
-      /* keep raw text */
+      json = undefined;
     }
-    throw new ApiError(res.status, `Attachment upload failed: ${res.status} ${msg}`);
+    const message =
+      apiErrorDetail(json?.message ?? json?.error ?? json) ??
+      (text && !json ? text : undefined) ??
+      res.statusText;
+    throw new ApiError(
+      res.status,
+      `Attachment upload failed: ${res.status} ${message}`,
+      json,
+    );
   }
 }
 
