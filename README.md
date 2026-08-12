@@ -99,7 +99,7 @@ The install JSON proves catalog state. The new-session response proves skill dis
 ```sh
 claude plugin validate . --strict
 claude plugin validate plugins/heroes-agent --strict
-claude plugin marketplace add .
+claude plugin marketplace add ./
 claude plugin install heroes-agent@logic-heroes
 ```
 

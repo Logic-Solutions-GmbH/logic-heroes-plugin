@@ -104,11 +104,24 @@ From the repository root, validate both the catalog and plugin. Then add the cat
 ```text
 claude plugin validate . --strict
 claude plugin validate plugins/heroes-agent --strict
-claude plugin marketplace add .
+claude plugin marketplace add ./
 claude plugin install heroes-agent@logic-heroes
+claude plugin marketplace list
+claude plugin list --json
+claude plugin details heroes-agent@logic-heroes
 ```
 
-Start a new session and invoke `/heroes-agent:heroes-agent` to verify discovery.
+The marketplace list must show `logic-heroes`. The plugin list must show
+`heroes-agent@logic-heroes` version `0.1.0` as installed and enabled. Plugin details must show
+one skill and zero agents, hooks, MCP servers, and LSP servers.
+
+Start a new session and invoke `/heroes-agent:heroes-agent` to verify discovery. A disposable
+`HOME` and `CLAUDE_CONFIG_DIR` are suitable for marketplace and installation checks. On macOS,
+an existing Claude subscription login can remain bound to the normal configuration through the
+Keychain and therefore be unavailable to that isolated configuration. For a live discovery smoke
+test in that case, use the normal authenticated Claude session with an explicit disposable
+`--plugin-dir`; this keeps the tested plugin source disposable without changing the normal Claude
+plugin installation.
 
 ### Cursor
 
