@@ -1,8 +1,12 @@
 /**
- * list-requests — discover handshake/RFQ requests, either direction.
+ * list-requests — discover HANDSHAKE requests, either direction.
  *
- * - `--direction incoming` — requests addressed to you (your inbox).
- * - `--direction outgoing` — requests you've sent and their status.
+ * - `--direction incoming` — HANDSHAKE requests addressed to you.
+ * - `--direction outgoing` — HANDSHAKE requests you've sent and their status.
+ *
+ * The current Heroes requests endpoint does not enumerate RFQ strategies. An
+ * RFQ requester must hand the returned service ID to the provider through the
+ * existing business channel; the provider then inspects it with service-status.ts.
  *
  * One key, one identity: which direction you ask for is just a query filter,
  * not a different credential (see docs/adr/0002 — maker/taker is per-move).
@@ -24,7 +28,7 @@ run(async (config) => {
 
   const apiKey = requireApiKey(config);
 
-  heading(`Service requests (${direction})`);
+  heading(`HANDSHAKE requests (${direction})`);
   const data = await api<any>(config, {
     method: 'GET',
     path: '/services/requests',

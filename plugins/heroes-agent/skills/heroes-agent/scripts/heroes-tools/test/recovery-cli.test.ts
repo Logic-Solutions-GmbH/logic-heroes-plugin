@@ -195,3 +195,61 @@ test('missing journey ID fails before shipment creation through the public launc
     rmSync(workspace, { recursive: true, force: true });
   }
 });
+
+test('blank journey IDs fail before shipment creation through the public launcher', async () => {
+  for (const journeyId of ['', '   ']) {
+    const workspace = mkdtempSync(join(tmpdir(), 'heroes-resume-blank-cli-'));
+    const payloadFolder = join(workspace, 'payload');
+    mkdirSync(payloadFolder);
+    writeFileSync(join(payloadFolder, 'booking.pdf'), 'synthetic resumed booking bytes');
+
+    let requestCount = 0;
+    const server = createServer((_request, response) => {
+      requestCount += 1;
+      response.writeHead(201, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ data: { id: 'unexpected-id' } }));
+    });
+
+    try {
+      const port = await listen(server);
+      const result = await new Promise<{ code: number | null; stdout: string; stderr: string }>(
+        (resolveProcess) => {
+          const child = spawn(
+            process.execPath,
+            [
+              launcher,
+              'create-shipment.ts',
+              payloadFolder,
+              '--target',
+              'globex',
+              '--journey-id',
+              journeyId,
+            ],
+            {
+              cwd: workspace,
+              env: {
+                ...process.env,
+                API_URL: `http://127.0.0.1:${port}/api`,
+                API_KEY: 'test-only-key',
+              },
+            },
+          );
+          let stdout = '';
+          let stderr = '';
+          child.stdout.on('data', (chunk) => (stdout += chunk));
+          child.stderr.on('data', (chunk) => (stderr += chunk));
+          child.on('close', (code) => resolveProcess({ code, stdout, stderr }));
+        },
+      );
+
+      assert.equal(result.code, 1);
+      assert.match(result.stderr, /--journey-id requires a value/);
+      assert.equal(requestCount, 0);
+    } finally {
+      await new Promise<void>((resolveClose, rejectClose) =>
+        server.close((error) => (error ? rejectClose(error) : resolveClose())),
+      );
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  }
+});

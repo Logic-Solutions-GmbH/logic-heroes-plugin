@@ -35,7 +35,7 @@ run(async (config) => {
   const name = flagString(flags, 'name') ?? 'Service Request';
   const loCode = flagString(flags, 'lo-code');
 
-  if (flags['journey-id'] === true) {
+  if ('journey-id' in flags && !existingJourneyId?.trim()) {
     throw new Error('--journey-id requires a value');
   }
   if (!folder || !target) {

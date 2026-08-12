@@ -192,6 +192,8 @@ Representative prompts:
 
 The agent confirms identity at session start, derives maker/taker per move, consults the railway before mutations, and asks the human only for genuine commitments. Payload staging accepts exactly one non-hidden file.
 
+RFQ initiation prints the new service ID. The requester must hand that ID to the provider through the existing business channel. The provider then runs `service-status.ts <service-id>`. The current Heroes requests endpoint does not enumerate RFQ strategies, so `list-requests.ts` is HANDSHAKE-only. This is a current API limitation, not automatic RFQ discovery.
+
 ## Local development
 
 ```text
@@ -218,6 +220,14 @@ node <plugin-root>/scripts/run-tool.mjs create-shipment.ts <payload-folder> --ta
 ```
 
 The resume option skips `POST /journeys`. It creates the service and starts HANDSHAKE on the supplied journey. Use it only when service creation did not succeed; it cannot prevent a duplicate service after a later partial failure.
+
+RFQ creation has the same journey-only recovery boundary:
+
+```text
+node <plugin-root>/scripts/run-tool.mjs request-quotation.ts <payload-folder> --target <provider-key> --journey-id <journey-id>
+```
+
+Use it only when RFQ service creation did not succeed. It skips duplicate journey creation, but it cannot prevent a duplicate service after a later partial failure.
 
 For an offline rate test, copy `self/rate-book/sample-rates.csv` to `self/rate-book/inbox/sample-rates.csv`. Then preview ingestion, ingest it, and query the created index:
 
@@ -287,7 +297,7 @@ Authenticated Heroes reads require a disposable tenant, its matching `API_KEY`, 
 - [x] Run all current offline validation commands. See `docs/release-evidence/slice-6-offline-gate.md`.
 - [x] Test discovery on all three platforms. See `docs/release-evidence/slice-7-codex-smoke.md`, `docs/release-evidence/slice-8-claude-smoke.md`, and `docs/release-evidence/slice-9-cursor-smoke.md`.
 - [x] Test HANDSHAKE against disposable Heroes tenants without exposing credentials. See `docs/release-evidence/slice-10-handshake.md`.
-- [ ] Test RFQ against disposable Heroes tenants without exposing credentials.
+- [x] Test RFQ against disposable Heroes tenants without exposing credentials. See `docs/release-evidence/slice-11-rfq.md`.
 - [x] Confirm the archive contains no `.env`, secrets, signed download URLs, `.DS_Store`, broken symlinks, or machine-local paths. See the Slice 6 evidence.
 - [x] Repeat the secret scan against the actual Git tracked-file set. The final Slice 6 gate scanned 54 tracked files.
 - [x] Verify watcher step-change and attachment-only change behavior against the service API. See `docs/release-evidence/slice-10-handshake.md`.

@@ -57,6 +57,8 @@ Read `references/handshake.md` for legal steps and guards.
 ## Solicited RFQ
 
 - Requester/maker: stage shipping instructions and run `request-quotation.ts <payload-folder> --target <provider-key>`. After a quote, summarize its terms and ask whether to accept, counter, or reject. Run `counter-quotation.ts` or `accept-quotation.ts` only from that decision.
+- Record the returned service ID and hand it to the provider through the existing business channel. The current Heroes requests endpoint does not enumerate RFQ strategies, so `list-requests.ts` is HANDSHAKE-only. The provider inspects the known ID with `service-status.ts <service-id>`; this is not automatic RFQ discovery.
+- If RFQ journey creation succeeds but service creation fails, rerun with `--journey-id <id>`. Do not use this recovery after service creation succeeds; it cannot prevent a duplicate service.
 - Provider/taker: inspect the request, extract origin/destination LOCODE, equipment, and date, then run `find-rate.ts ... --json`. Exit `0` means quote the unambiguous filed rate; exit `3` means no match; exit `2` means no rate book. Ask for pricing judgment only for no/stale/ambiguous matches or below-rate counters. Stage one quote file and run `quote-request.ts <service-id> <quote-folder> --provider-ref <ref>`.
 - Price travels in the attached quote or inline counter message, not a Heroes price field.
 
