@@ -127,9 +127,18 @@ plugin installation.
 
 Cursor teams can import the public repository through **Dashboard > Plugins > Import from Repo**. Cursor reads `.cursor-plugin/marketplace.json` and resolves `plugins/heroes-agent`.
 
-For the documented direct local loader, copy or link `plugins/heroes-agent` to `~/.cursor/plugins/local/heroes-agent`. Restart Cursor or run **Developer: Reload Window**, then verify the skill. Cursor does not document a general plugin validation command.
+For the documented direct local loader in the IDE, copy or link `plugins/heroes-agent` to `~/.cursor/plugins/local/heroes-agent`. Restart Cursor or run **Developer: Reload Window**, then verify the skill.
 
-The later host smoke-test slices verify live discovery for Codex, Claude Code, and Cursor. The catalog checks in this slice do not replace those tests.
+For the verified Agent CLI smoke path, load the plugin directly from a fresh archive source:
+
+```sh
+cursor-agent -p --output-format text --model composer-2.5 --force --trust \
+  --workspace <disposable-workspace> \
+  --plugin-dir <disposable-source>/plugins/heroes-agent \
+  "<prompt>"
+```
+
+Cursor provides no general plugin validator and no local CLI install or list flow comparable to Codex or Claude Code. `cursor-agent plugin marketplace list` is read-only account visibility only. A direct `--plugin-dir` load proves manifest and skill acceptance; it does not prove Dashboard import or account marketplace indexing. See `docs/release-evidence/slice-9-cursor-smoke.md`.
 
 No installation command above stores a Heroes credential in a manifest or marketplace file.
 
@@ -217,7 +226,7 @@ Heroes stores the authoritative journey, service, strategy step, event, particip
 - Skills are shared, but invocation names and discovery UI differ. No hooks, custom UI, or subagents are required.
 - Two counterparties need separate workspaces and credentials. One agent must never impersonate both peers.
 - There is no MCP server. Full ChatGPT web parity requires a separately designed hosted MCP/OAuth/intake system.
-- Cursor currently provides no general official plugin validator command. CLI plugin-directory discovery is the current smoke test. IDE installation remains a pending host test.
+- Cursor provides no general plugin validator and no local CLI install or list flow. The verified acceptance path is direct Agent CLI `--plugin-dir` discovery. Dashboard import and IDE local loading remain documented but are not proven by that CLI smoke.
 
 ## Clean-checkout validation
 
@@ -249,7 +258,7 @@ Host discovery is a separate interactive check:
 | --- | --- | --- | --- |
 | Codex | Add with `--json`, record `installedPath`, then start a new session with the exact `$heroes-agent` prompts above | Host login and the loaded repository catalog | Install JSON shows enabled state; the discovery response asks for tenant key and display name; onboarding preserves the exact display name and stops at blank `API_KEY`. |
 | Claude Code | `claude plugin install heroes-agent@logic-heroes` | Claude login and the loaded repository catalog | Invoke `/heroes-agent:heroes-agent` successfully. |
-| Cursor | Direct local loader or Dashboard repository import | Cursor login and a restarted or reloaded host | Verify the skill appears and responds. Cursor has no general validator command. |
+| Cursor | `cursor-agent -p --plugin-dir <disposable-source>/plugins/heroes-agent --workspace <disposable-workspace> "<prompt>"` | Authenticated Cursor Agent CLI and a disposable archive source | Discovery asks for tenant key and display name; onboarding preserves both values exactly and stops at blank `API_KEY`. The account marketplace list is read-only and does not prove install. |
 
 Run these checks from the repository root. They prove static package and catalog structure. They do not prove live host discovery.
 
@@ -260,7 +269,7 @@ Authenticated Heroes reads require a disposable tenant, its matching `API_KEY`, 
 - [x] Choose and add a license. Root `LICENSE` (Apache-2.0) and `NOTICE` are included.
 - [x] Add the public repository and organization URLs to supported manifest fields.
 - [x] Run all current offline validation commands. See `docs/release-evidence/slice-6-offline-gate.md`.
-- [ ] Test discovery on all three platforms.
+- [x] Test discovery on all three platforms. See `docs/release-evidence/slice-7-codex-smoke.md`, `docs/release-evidence/slice-8-claude-smoke.md`, and `docs/release-evidence/slice-9-cursor-smoke.md`.
 - [ ] Test HANDSHAKE and RFQ against disposable Heroes tenants without exposing credentials.
 - [x] Confirm the archive contains no `.env`, secrets, signed download URLs, `.DS_Store`, broken symlinks, or machine-local paths. See the Slice 6 evidence.
 - [x] Repeat the secret scan against the actual Git tracked-file set. The final Slice 6 gate scanned 54 tracked files.

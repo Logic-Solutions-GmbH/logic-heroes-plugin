@@ -73,7 +73,7 @@ codex plugin list --json
 
 Record `installedPath` from the `codex plugin add heroes-agent@logic-heroes --json` result. Start a new Codex session after installation.
 
-First, prove skill discovery without file or network work:
+First, prove skill discovery without file work or a Heroes API call:
 
 ```text
 Use $heroes-agent. Read its installed instructions. State the two human values required before peer initialization. Do not create files or call a network service.
@@ -109,9 +109,37 @@ Invoke the skill as `/heroes-agent:heroes-agent` in a new session.
 
 Cursor teams can import this public repository through **Dashboard > Plugins > Import from Repo**. The catalog is `.cursor-plugin/marketplace.json`.
 
-For a direct local load, copy or link `plugins/heroes-agent` to `~/.cursor/plugins/local/heroes-agent`. Restart Cursor or run **Developer: Reload Window**.
+For a direct local load in the IDE, copy or link `plugins/heroes-agent` to `~/.cursor/plugins/local/heroes-agent`. Restart Cursor or run **Developer: Reload Window**.
 
-Live host discovery remains part of the later host smoke-test slices.
+For the verified Agent CLI smoke path, unpack a fresh archive to a disposable source directory, use a disposable peer parent as the workspace, and load the plugin directly:
+
+```sh
+cursor-agent -p --output-format text --model composer-2.5 --force --trust \
+  --workspace <disposable-workspace> \
+  --plugin-dir <disposable-source>/plugins/heroes-agent \
+  "<prompt>"
+```
+
+First, prove skill discovery without file work or a Heroes API call:
+
+```text
+Use the loaded heroes-agent skill. Read its instructions. State the two human values required before peer initialization. Do not create files or call the Heroes API.
+```
+
+The next prompt uses placeholders. Replace both JSON values before you send it:
+
+````text
+Use the loaded heroes-agent skill. Create one peer workspace from this identity:
+```json
+{
+  "tenantKey": "<tenant-key>",
+  "displayName": "<display-name>"
+}
+```
+Copy both JSON string values character-for-character. After initialization, compare both values with self/identity.md. Do not call the Heroes API. Stop when a Heroes API key is required.
+````
+
+`cursor-agent plugin marketplace list` is read-only visibility only. It does not install the plugin. A direct `--plugin-dir` load proves manifest and skill acceptance; it does not prove Dashboard import or account marketplace indexing. See `docs/release-evidence/slice-9-cursor-smoke.md`.
 
 ## First run
 
