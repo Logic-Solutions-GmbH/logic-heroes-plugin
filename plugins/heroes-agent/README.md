@@ -6,20 +6,30 @@ The plugin targets local Codex, Claude Code, and Cursor agents. It does not prov
 
 ## Quick start (agents)
 
-Right after installing this plugin, before any Heroes operation:
+Before any Heroes operation, collect these inputs:
 
-1. Ask the human for **tenant key** and **display name** (never invent them).
-2. If tool dependencies are missing, run `node <plugin-root>/scripts/setup-tools.mjs`.
-3. Run `node <plugin-root>/scripts/init-peer.mjs run/<tenant-key> --tenant-key <key> --display-name <name>`.
-4. Open `run/<tenant-key>/self/.env` (hosted `API_URL` is already set; `API_KEY` is blank).
-5. Stop and wait until the human sets `API_KEY`. Never print the key.
-6. Only then triage intake, drive railways, or call authenticated tools.
+- Node.js 18 or newer and the CLI for the selected host;
+- the repository root and the plugin root at `plugins/heroes-agent`;
+- a peer parent directory where the operator can create `run/<tenant-key>`;
+- the human-provided **tenant key** and **display name** (never invent them);
+- npm registry access, or a complete local npm cache, for dependency setup.
 
-If the peer already exists with a blank key, open `self/.env` and wait. If the key is set, skip to normal operation.
+Then:
+
+1. For Claude Code or Cursor, load the plugin with the current host-specific command in [Install](#install), and verify discovery. For Codex, stop until a catalog exists.
+2. Record the plugin root and the peer workspace path. `run/<tenant-key>` is relative to the current directory, not the plugin directory.
+3. Run `node <plugin-root>/scripts/setup-tools.mjs` if tool dependencies are missing.
+4. From the chosen peer parent directory, run `node <plugin-root>/scripts/init-peer.mjs run/<tenant-key> --tenant-key <key> --display-name <name>`.
+5. Open `run/<tenant-key>/self/.env`. The hosted `API_URL` is set, and `API_KEY` is blank.
+6. Stop and wait until the human sets `API_KEY`. Never print the key.
+7. Change directory to `run/<tenant-key>` before any `run-tool.mjs` command.
+8. Only then triage intake, drive railways, or call authenticated tools.
+
+If the peer already exists, do not rerun initialization or overwrite it. Follow [Recovery](#recovery).
 
 ## Quick start (humans)
 
-1. Install the plugin on your agent host (commands below).
+1. Load the plugin on your agent host with a current command below.
 2. Tell the agent your **tenant key** and **display name**.
 3. When it opens `run/<your-tenant>/self/.env`, paste your Logic Heroes API key into `API_KEY`.
 4. Leave `API_URL` as `https://api.logicheroes.network/api` unless you run Heroes locally (`http://localhost:3401/api`).
@@ -50,17 +60,19 @@ The platform manifests are metadata adapters. They do not duplicate skills, scri
 
 ## Install
 
+This checkout does not include a Codex or Claude marketplace catalog. Claude Code and Cursor support the direct local load checks below. Codex marketplace discovery is blocked until a catalog exists. A persistent installation can require a new host session before discovery.
+
 ### Codex / local ChatGPT coding agent
 
-Add this repository root as a marketplace with `codex plugin marketplace add <repository-root>`, then explicitly install the plugin with `codex plugin add heroes-agent@heroes-agent`. Start a new task so the installed skill is rediscovered. Codex can run the local skill and scripts; browser-based ChatGPT cannot run this local workflow without the separate hosted design described above.
+The Codex adapter exists at `plugins/heroes-agent/.codex-plugin/plugin.json`, but this checkout has no `.agents/plugins/marketplace.json`. Do not use `codex plugin marketplace add` or `codex plugin add` yet. Before release, add and validate a catalog, document its real catalog name, and test `codex plugin add heroes-agent@<catalog-name>` in a clean host session. Codex can run the local skill and scripts after valid discovery; browser-based ChatGPT cannot run this local workflow without the separate hosted design described above.
 
 ### Claude Code
 
-Add the repository marketplace with `claude plugin marketplace add <repository-root>`, then run `claude plugin install heroes-agent@heroes-agent`. For direct local development, run `claude --plugin-dir plugins/heroes-agent` from the repository root. The explicit skill name is `/heroes-agent:heroes-agent`.
+From the repository root, run `claude --plugin-dir plugins/heroes-agent`. In that interactive session, invoke `/heroes-agent:heroes-agent` to verify discovery. This checkout has no root `.claude-plugin/marketplace.json`, so do not use `claude plugin marketplace add` or `claude plugin install` yet. Add and validate a Claude marketplace catalog before those become release instructions.
 
 ### Cursor
 
-For a local CLI session, run `cursor-agent --plugin-dir plugins/heroes-agent` from the repository root. For local IDE installation, copy the plugin to `~/.cursor/plugins/local/heroes-agent` on macOS/Linux or `%USERPROFILE%\.cursor\plugins\local\heroes-agent` on Windows, then run **Developer: Reload Window** (or restart Cursor) and verify discovery in Customize or chat. A symlink may be used as a development convenience where the operating system and permissions support it, but the plugin does not depend on symlinks. Once a public repository is submitted and accepted by Cursor Marketplace, users can install it with `/add-plugin heroes-agent`.
+From the repository root, run `cursor-agent --plugin-dir plugins/heroes-agent`. In that interactive session, ask the agent to use the Heroes Agent skill and verify that it responds. This command requires Cursor sign-in and network access. It is a discovery smoke test, not an official schema validator. Cursor IDE installation and public marketplace installation remain pending host tests; this manual does not prescribe an unverified local plugin directory or marketplace command.
 
 No installation command above stores a Heroes credential in a manifest or marketplace file.
 
@@ -72,12 +84,12 @@ Node.js 18 or newer is required and enforced by the setup helper; Node.js 22 is 
 node plugins/heroes-agent/scripts/setup-tools.mjs
 ```
 
-The helper runs the locked `npm ci` with the shared tools directory as the actual child-process working directory. This avoids npm-version-dependent `--prefix` behavior and works with `npm.cmd` on Windows.
+The helper always runs locked `npm ci` with the shared tools directory as the child-process working directory. It needs npm registry access unless the npm cache contains every locked package. It writes `node_modules` under the shared tools directory. With `--check`, it installs first, then runs TypeScript typechecking, the full offline package tests, and cross-platform helper checks. It works with `npm.cmd` on Windows.
 
-Create an isolated peer workspace (agents should use `run/<tenant-key>/`):
+Choose a peer parent directory, record the plugin root, and create an isolated peer workspace. The destination resolves from the caller's current directory:
 
 ```text
-node plugins/heroes-agent/scripts/init-peer.mjs run/acme-corp --tenant-key acme-corp --display-name "Acme Corp"
+node <plugin-root>/scripts/init-peer.mjs run/acme-corp --tenant-key acme-corp --display-name "Acme Corp"
 ```
 
 `init-peer` creates an ignored `self/.env` stub automatically:
@@ -91,7 +103,16 @@ All Heroes JSON and multipart calls use `x-api-key`. Local rate ingestion and lo
 - **Claude Code:** edit the same ignored file. This plugin does not declare `userConfig`, because the runtime intentionally binds identity to the peer workspace. Claude's background-task behavior may help watchers but is not an authentication store.
 - **Cursor:** edit the same ignored file (agent should open it after init). This plugin does not declare Cursor `variables`, because dashboard values would not automatically populate the workspace-scoped runtime. Allow local shell/network actions according to workspace policy.
 
-The runtime reads `self/.env` first and root `.env` second; file values override inherited shell values to prevent cross-peer credential leakage. Never commit either filled file.
+At runtime, `self/.env` wins over root `.env`; either file wins over inherited shell values. If neither file exists, inherited `API_URL` and `API_KEY` remain active, and `API_URL` defaults to `http://localhost:3401/api`. The initializer creates hosted `self/.env`. Never commit either filled file.
+
+## Recovery
+
+- If the destination exists, do not rerun initialization. Do not delete or overwrite the peer.
+- If `self/.env` is missing, copy `self/.env.example` to `self/.env`, set `API_URL=https://api.logicheroes.network/api`, leave `API_KEY` blank, and wait for the human.
+- If `self/identity.md` is missing, or its required tenant key or display name is missing or still a placeholder, stop. Ask the human for those required values before any Heroes action. The three optional fields may remain `<optional>`.
+- If dependencies are missing, run `node <plugin-root>/scripts/setup-tools.mjs`. It executes `npm ci` and writes `node_modules`.
+- If authentication fails, verify the effective `API_URL` and the tenant-specific `API_KEY`. Never print the key.
+- After a host restart, start a new foreground watch. Durable watcher resume is not promised.
 
 ## Use
 
@@ -110,12 +131,27 @@ The agent confirms identity at session start, derives maker/taker per move, cons
 ```text
 node plugins/heroes-agent/scripts/setup-tools.mjs --check
 node plugins/heroes-agent/scripts/init-peer.mjs temporary-peer --tenant-key smoke-peer --display-name "Smoke Peer" --dry-run
-node plugins/heroes-agent/scripts/validate-portability.mjs
 ```
 
 `--check` runs locked installation, TypeScript typechecking, offline runtime unit tests, and cross-platform helper integration checks from the correct working directories. The helper checks create a real nested peer destination under the operating system's temporary directory, confirm the `self/.env` stub is created with a blank `API_KEY`, verify overwrite refusal, and clean up afterward.
 
-From a peer workspace, use `node <plugin-root>/scripts/run-tool.mjs <script-name> <arguments>` to run a bundled TypeScript tool. The launcher keeps the peer workspace as the current directory, so `self/.env`, intake, and rate-book defaults resolve correctly. Network scripts require local credentials. `ingest-rates.ts --dry-run` and `find-rate.ts` can be tested offline.
+From the peer workspace, use `node <plugin-root>/scripts/run-tool.mjs <script-name> <arguments>` to run a bundled TypeScript tool. The launcher keeps that peer workspace as the current directory, so `self/.env`, intake, and rate-book defaults resolve there. Network scripts require local credentials.
+
+For an offline rate test, copy `self/rate-book/sample-rates.csv` to `self/rate-book/inbox/sample-rates.csv`. Then preview ingestion, ingest it, and query the created index:
+
+```text
+node <plugin-root>/scripts/run-tool.mjs ingest-rates.ts --dry-run
+node <plugin-root>/scripts/run-tool.mjs ingest-rates.ts
+node <plugin-root>/scripts/run-tool.mjs find-rate.ts --origin NLRTM --dest USNYC --equipment 40HC
+```
+
+`ingest-rates.ts --dry-run` still needs an existing peer workspace and inbox directory. `find-rate.ts` exits `2` until `self/rate-book/index/rate-book.csv` exists.
+
+## Local data and the system of record
+
+The peer workspace stores local identity, ignored credentials, intake deposits, processed copies, provider-owned CSV rates, railway copies, and downloaded attachments. Local documents are inputs or downloaded projections. Provider-owned rates can select a quote, but they are pricing input rather than shared Heroes state.
+
+Heroes stores the authoritative journey, service, strategy step, event, participant, and attachment state. Legal moves and counterparty state pass through the Heroes railway and API. A local file cannot prove acceptance, rejection, quotation, or the current service step. If local data conflicts with Heroes, the Heroes state controls the next legal move. Local data can be recreated or replaced; the shared legal state must come from Heroes.
 
 ## Portability limitations
 
@@ -124,28 +160,45 @@ From a peer workspace, use `node <plugin-root>/scripts/run-tool.mjs <script-name
 - Skills are shared, but invocation names and discovery UI differ. No hooks, custom UI, or subagents are required.
 - Two counterparties need separate workspaces and credentials. One agent must never impersonate both peers.
 - There is no MCP server. Full ChatGPT web parity requires a separately designed hosted MCP/OAuth/intake system.
-- Cursor currently provides no general official plugin validator command. CLI plugin-directory discovery and manual IDE reload remain necessary platform tests.
+- Cursor currently provides no general official plugin validator command. CLI plugin-directory discovery is the current smoke test. IDE installation remains a pending host test.
 
-## Validation
+## Clean-checkout validation
 
-Run:
+Use a disposable clean checkout. Do not reuse installed dependencies. These checks do not need a live Heroes tenant:
 
 ```text
 python3 <plugin-creator-skill>/scripts/validate_plugin.py plugins/heroes-agent
 claude plugin validate plugins/heroes-agent --strict
-claude plugin validate . --strict
 node plugins/heroes-agent/scripts/setup-tools.mjs --check
-node plugins/heroes-agent/scripts/validate-portability.mjs
-cursor-agent --plugin-dir plugins/heroes-agent
+node plugins/heroes-agent/scripts/init-peer.mjs temporary-peer --tenant-key smoke-peer --display-name "Smoke Peer" --dry-run
 ```
 
-The portability validator checks JSON/path presence, normalized manifest names, skill frontmatter, filled `.env` files, private-key headers, JWT-like values, common GitHub/AWS/API token shapes, machine-local paths, `.DS_Store`, and symlinks. It intentionally allows documented variable names such as `API_KEY` and scans only declared plugin/marketplace outputs, never the ignored source-demo `.env`. If no Git repository exists, it explicitly reports that a tracked-file scan is unavailable instead of claiming tracked-file coverage. Cursor's plugin-directory command is a discovery smoke test, not an official schema validator. Heroes authentication and mutation tests require a disposable tenant and explicit credentials and are not run by repository validation.
+Required inputs and expected results:
+
+| Check | Required inputs | Expected result |
+| --- | --- | --- |
+| `init-peer.mjs ... --dry-run` | Node.js 18+, tenant key, display name, destination | Exit `0`; report the resolved destination; write no peer files. |
+| `setup-tools.mjs --check` | Node.js 18+, npm, registry access or a complete cache, writable checkout | Exit `0`; install dependencies into `node_modules`; pass typecheck, all offline package tests, and helper checks. |
+| `validate_plugin.py` | Python 3 and the external Codex `plugin-creator` skill directory | Exit `0`. Replace `<plugin-creator-skill>` with the directory that contains that skill's `scripts/validate_plugin.py`. |
+| `claude plugin validate plugins/heroes-agent --strict` | Installed Claude CLI | Exit `0`. |
+
+Host discovery is a separate interactive check:
+
+| Host | Command or state | Required inputs | Expected result |
+| --- | --- | --- | --- |
+| Codex | Marketplace install is blocked in this checkout. | A tracked, validated Codex catalog plus host login and network access | After the catalog exists, install with its real name and verify skill discovery in a new session. |
+| Claude Code | `claude --plugin-dir plugins/heroes-agent` | Claude login and network access | Invoke `/heroes-agent:heroes-agent` successfully. |
+| Cursor | `cursor-agent --plugin-dir plugins/heroes-agent` | Cursor login and network access | Verify the skill appears and responds. This is not an unattended validator. |
+
+Do not run `node plugins/heroes-agent/scripts/validate-portability.mjs` or `claude plugin validate . --strict` as clean-checkout release checks in this catalog-free commit. Both depend on absent root catalog files.
+
+Authenticated Heroes reads require a disposable tenant, its matching `API_KEY`, `API_URL`, network approval, and a known service ID. Mutation and recovery validation require two disposable tenants, valid service IDs and payloads, explicit human decisions, legal railway transitions, and mutation approval. Never print a key. Confirm the resulting state in Heroes. These external tests are not part of offline repository validation.
 
 ## Public-release checklist
 
 - [x] Choose and add a license. Root `LICENSE` (Apache-2.0) and `NOTICE` are included.
 - [ ] Add real repository, homepage, support, privacy, and terms URLs only after they exist.
-- [ ] Run all offline validation commands and manual plugin discovery on all three platforms.
+- [ ] Run all current offline validation commands. After the missing catalogs exist, test discovery on all three platforms.
 - [ ] Test HANDSHAKE and RFQ against disposable Heroes tenants without exposing credentials.
 - [ ] Confirm the archive contains no `.env`, secrets, signed download URLs, `.DS_Store`, broken symlinks, or machine-local paths.
 - [ ] Repeat the secret scan against the actual Git tracked-file set once the plugin is placed in a Git repository.
