@@ -11,6 +11,7 @@ const initializer = join(pluginRoot, 'scripts', 'init-peer.mjs');
 const sandbox = mkdtempSync(join(tmpdir(), 'heroes-agent-helpers-'));
 const destination = join(sandbox, 'run', 'nested', 'acme-corp');
 const hostedApiUrl = 'https://api.logicheroes.network/api';
+const exactDisplayName = 'Acme  Corp (EU), S.A.';
 
 try {
   const first = spawnSync(process.execPath, [
@@ -19,11 +20,16 @@ try {
     '--tenant-key',
     'acme-corp',
     '--display-name',
-    'Acme Corp',
+    exactDisplayName,
   ], { encoding: 'utf8' });
   assert.equal(first.status, 0, first.stderr || first.stdout);
   assert.ok(existsSync(join(destination, 'self', 'identity.md')));
-  assert.match(readFileSync(join(destination, 'self', 'identity.md'), 'utf8'), /`acme-corp`/);
+  const identityText = readFileSync(join(destination, 'self', 'identity.md'), 'utf8');
+  assert.match(identityText, /`acme-corp`/);
+  assert.ok(
+    identityText.includes(`- **Display name:** \`${exactDisplayName}\``),
+    'init-peer must preserve display-name punctuation and spacing exactly',
+  );
   assert.ok(existsSync(join(destination, 'self', '.env.example')));
 
   const envPath = join(destination, 'self', '.env');
@@ -51,7 +57,11 @@ try {
   ], { encoding: 'utf8' });
   assert.equal(second.status, 1, 'existing destination must be refused');
   assert.match(second.stderr, /Refusing to overwrite existing destination/);
-  assert.match(readFileSync(join(destination, 'self', 'identity.md'), 'utf8'), /`Acme Corp`/);
+  assert.ok(
+    readFileSync(join(destination, 'self', 'identity.md'), 'utf8').includes(
+      `- **Display name:** \`${exactDisplayName}\``,
+    ),
+  );
   console.log('Helper integration checks passed (nested init, env stub, overwrite refusal).');
 } finally {
   rmSync(sandbox, { recursive: true, force: true });

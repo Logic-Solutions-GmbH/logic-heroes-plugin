@@ -46,12 +46,16 @@ The first discovery prompt prevented the session from reading the installed inst
 
 The next onboarding attempt used the owner-supplied disposable tenant key and exact display name. It added one punctuation character to the display name. That change violated exact identity preservation.
 
+The first fixed-candidate acceptance retest discovered the revised skill, but it still added one punctuation character to the exact display name. The prose preservation rule was insufficient.
+
 Neither result is an accepted discovery proof. No live HANDSHAKE move forms part of this offline smoke test.
 
 These failures require two release fixes:
 
 1. The skill must preserve the supplied display name exactly, including punctuation and spacing.
 2. The Codex catalog must declare `ON_USE`, because the human supplies the local Heroes credential after installation.
+
+The next fix replaces the prose-only identity contract with one fenced JSON object. The skill must copy both JSON string values character-for-character, then compare both stored values after initialization.
 
 ## Acceptance retest
 
@@ -63,11 +67,18 @@ Use $heroes-agent. Read its installed instructions. State the two human values r
 
 The response must ask for the tenant key and display name. It must not invent either value.
 
-Then use this onboarding prompt:
+Then send one fenced JSON object with exactly `tenantKey` and `displayName`:
 
-```text
-Use $heroes-agent. Create one peer workspace for the owner-supplied disposable tenant key and exact display name. Preserve both values exactly. Do not use a network service. Stop when a Heroes API key is required.
+````text
+Use $heroes-agent. Create one peer workspace from this identity:
+```json
+{
+  "tenantKey": "<owner-supplied-disposable-tenant-key>",
+  "displayName": "<owner-supplied-exact-display-name>"
+}
 ```
+Copy both JSON string values character-for-character. After initialization, compare both values with self/identity.md. Do not use a network service. Stop when a Heroes API key is required.
+````
 
 Acceptance requires all these results:
 
@@ -77,6 +88,7 @@ Acceptance requires all these results:
 - A new session applies `$heroes-agent`.
 - `self/identity.md` contains the exact owner-supplied disposable tenant key.
 - `self/identity.md` contains the exact owner-supplied display name without any change.
+- The agent compares both stored identity values with the supplied JSON before it continues.
 - `self/.env` contains the hosted URL and a blank `API_KEY`.
 - The agent stops before any authenticated Heroes call.
 - A second initialization refuses to overwrite the peer.
@@ -97,6 +109,6 @@ The final exact commit and live acceptance results belong in the channel canvas.
 
 ## Current status
 
-The baseline install and catalog checks passed. The first new-session attempt failed discovery. The next attempt discovered the skill but failed exact identity preservation.
+The baseline install and catalog checks passed. The first new-session attempt failed discovery. The next attempt and the first fixed-candidate retest discovered the skill but failed exact identity preservation.
 
-The planned acceptance retest must run after the skill, catalog policy, and operator instructions contain the fixes above.
+The planned structured-identity acceptance retest must run after the skill and operator instructions contain the JSON contract and post-init comparison.

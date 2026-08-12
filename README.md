@@ -79,11 +79,18 @@ First, prove skill discovery without file or network work:
 Use $heroes-agent. Read its installed instructions. State the two human values required before peer initialization. Do not create files or call a network service.
 ```
 
-The next prompt uses `smoke-peer` and `Smoke Peer` as examples. Replace both with the exact operator-supplied values:
+The next prompt uses `smoke-peer` and `Smoke Peer` as examples. Replace both JSON values before you send it:
 
-```text
-Use $heroes-agent. Create one peer workspace at run/smoke-peer. The tenant key is smoke-peer. The display name is Smoke Peer. Preserve the display name exactly. Do not use a network service. Stop when a Heroes API key is required.
+````text
+Use $heroes-agent. Create one peer workspace from this identity:
+```json
+{
+  "tenantKey": "smoke-peer",
+  "displayName": "Smoke Peer"
+}
 ```
+Copy both JSON string values character-for-character. After initialization, compare both values with self/identity.md. Do not use a network service. Stop when a Heroes API key is required.
+````
 
 The install JSON proves catalog state. The new-session response proves skill discovery and use.
 

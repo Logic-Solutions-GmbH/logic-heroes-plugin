@@ -221,10 +221,17 @@ for (const assumption of ['CLAUDE_PLUGIN_ROOT', 'CLAUDE_SKILL_DIR', 'CODEX_HOME'
 if (!skill.startsWith('---\nname: heroes-agent\ndescription:')) errors.push('shared skill frontmatter is not portable');
 if (
   !skill.includes(
-    'Preserve the human-supplied display name exactly, including punctuation and spacing. Never normalize or embellish it.',
+    'Copy both JSON string values character-for-character into the initializer arguments.',
   )
 ) {
-  errors.push('shared skill does not preserve the exact human-supplied display name');
+  errors.push('shared skill does not preserve structured identity values');
+}
+if (
+  !skill.includes(
+    'Compare its tenant key and display name with both JSON string values character-for-character. If either differs, report initialization failure and do not continue.',
+  )
+) {
+  errors.push('shared skill does not verify initialized identity');
 }
 if (
   !skill.includes(

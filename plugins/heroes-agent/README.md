@@ -80,13 +80,20 @@ Start a new Codex session after installation. First, prove skill discovery witho
 Use $heroes-agent. Read its installed instructions. State the two human values required before peer initialization. Do not create files or call a network service.
 ```
 
-The response must ask for the tenant key and display name. The next prompt uses `smoke-peer` and `Smoke Peer` as examples. Replace both with the exact operator-supplied values:
+The response must ask for the tenant key and display name as fenced JSON. The next prompt uses `smoke-peer` and `Smoke Peer` as examples. Replace both JSON values before you send it:
 
-```text
-Use $heroes-agent. Create one peer workspace at run/smoke-peer. The tenant key is smoke-peer. The display name is Smoke Peer. Preserve the display name exactly. Do not use a network service. Stop when a Heroes API key is required.
+````text
+Use $heroes-agent. Create one peer workspace from this identity:
+```json
+{
+  "tenantKey": "smoke-peer",
+  "displayName": "Smoke Peer"
+}
 ```
+Copy both JSON string values character-for-character. After initialization, compare both values with self/identity.md. Do not use a network service. Stop when a Heroes API key is required.
+````
 
-The agent must preserve `Smoke Peer` exactly, create the peer with the installed helper, and stop at the blank `API_KEY`. The install JSON proves catalog state. The new-session response and peer files prove skill discovery and use. One result does not replace the other.
+The agent must preserve both JSON values exactly, create the peer with the installed helper, compare both stored values, and stop at the blank `API_KEY`. The install JSON proves catalog state. The new-session response and peer files prove skill discovery and use. One result does not replace the other.
 
 Use `codex plugin marketplace list --json` and `codex plugin list --json` to inspect the loaded catalog and plugin. Browser-based ChatGPT cannot run this local workflow without the separate hosted design described above.
 

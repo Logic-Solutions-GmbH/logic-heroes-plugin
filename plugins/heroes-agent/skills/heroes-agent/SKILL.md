@@ -11,11 +11,21 @@ Operate as exactly one Heroes tenant from one isolated peer workspace. Heroes is
 
 In the first new session that uses this installed plugin, before any HANDSHAKE, RFQ, or authenticated Heroes tool call:
 
-1. Ask the human for the peer **tenant key** and **display name**. Never invent or borrow them. Tenant keys must be lower-case hyphen-case. Preserve the human-supplied display name exactly, including punctuation and spacing. Never normalize or embellish it.
+1. Ask the human for identity as one fenced JSON object with exactly `tenantKey` and `displayName`:
+
+   ```json
+   {
+     "tenantKey": "smoke-peer",
+     "displayName": "Smoke Peer"
+   }
+   ```
+
+   Never invent or borrow either value. Tenant keys must be lower-case hyphen-case. Copy both JSON string values character-for-character into the initializer arguments. Never normalize, trim, punctuate, or embellish either value.
 2. Locate the plugin root. If runtime dependencies are not installed, run `node <plugin-root>/scripts/setup-tools.mjs`.
-3. Create the peer workspace with `node <plugin-root>/scripts/init-peer.mjs run/<tenant-key> --tenant-key <key> --display-name <name>`. This writes templates plus an ignored `self/.env` stub (`API_URL` set to hosted Heroes, `API_KEY` blank). It never writes a filled secret.
-4. Open `run/<tenant-key>/self/.env` for the human and **stop**. Wait until they set `API_KEY`. Never print or echo the key.
-5. Only then continue with Heroes operations.
+3. Create the peer workspace with `node <plugin-root>/scripts/init-peer.mjs run/<tenantKey> --tenant-key <tenantKey> --display-name <displayName>`. This writes templates plus an ignored `self/.env` stub (`API_URL` set to hosted Heroes, `API_KEY` blank). It never writes a filled secret.
+4. After initialization, read `run/<tenantKey>/self/identity.md`. Compare its tenant key and display name with both JSON string values character-for-character. If either differs, report initialization failure and do not continue.
+5. Open `run/<tenantKey>/self/.env` for the human and **stop**. Wait until they set `API_KEY`. Never print or echo the key.
+6. Only then continue with Heroes operations.
 
 If a peer already exists at `run/<tenant-key>/`, do not re-run init. If `self/.env` is missing (older peer), copy `self/.env.example` to `self/.env`, set `API_URL` to `https://api.logicheroes.network/api`, leave `API_KEY` blank, then open `self/.env` and wait. If `API_KEY` is blank or missing, open `self/.env` and wait. If `API_KEY` is already set, skip onboarding and use Start safely below. If init refuses because the destination exists, ask the human how to proceed.
 
