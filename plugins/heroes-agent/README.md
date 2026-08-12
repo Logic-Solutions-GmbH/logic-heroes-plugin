@@ -16,7 +16,7 @@ Before any Heroes operation, collect these inputs:
 
 Then:
 
-1. For Claude Code or Cursor, load the plugin with the current host-specific command in [Install](#install), and verify discovery. For Codex, stop until a catalog exists.
+1. For Codex or Claude Code, add the repository catalog and install the plugin with the command in [Install](#install). For Cursor, use the documented Dashboard import or local loader.
 2. Record the plugin root and the peer workspace path. `run/<tenant-key>` is relative to the current directory, not the plugin directory.
 3. Run `node <plugin-root>/scripts/setup-tools.mjs` if tool dependencies are missing.
 4. From the chosen peer parent directory, run `node <plugin-root>/scripts/init-peer.mjs run/<tenant-key> --tenant-key <key> --display-name <name>`.
@@ -52,7 +52,7 @@ plugins/heroes-agent/
     run-tool.mjs                 tool launcher that preserves peer working directory
     setup-tools.mjs              locked dependency setup and optional checks
     validate-portability.mjs     repository safety/static checks
-  assets/                        reserved for plugin-wide media
+  assets/                        public plugin icon and logo
   .env.example                   documented variable names only
 ```
 
@@ -60,19 +60,39 @@ The platform manifests are metadata adapters. They do not duplicate skills, scri
 
 ## Install
 
-This checkout does not include a Codex or Claude marketplace catalog. Claude Code and Cursor support the direct local load checks below. Codex marketplace discovery is blocked until a catalog exists. A persistent installation can require a new host session before discovery.
+The repository has one catalog for each host. Each catalog resolves the same `plugins/heroes-agent` root. A persistent installation can require a new host session before discovery.
 
 ### Codex / local ChatGPT coding agent
 
-The Codex adapter exists at `plugins/heroes-agent/.codex-plugin/plugin.json`, but this checkout has no `.agents/plugins/marketplace.json`. Do not use `codex plugin marketplace add` or `codex plugin add` yet. Before release, add and validate a catalog, document its real catalog name, and test `codex plugin add heroes-agent@<catalog-name>` in a clean host session. Codex can run the local skill and scripts after valid discovery; browser-based ChatGPT cannot run this local workflow without the separate hosted design described above.
+From the repository root, load the repository catalog and install the plugin:
+
+```text
+codex plugin marketplace add .
+codex plugin add heroes-agent@logic-heroes
+```
+
+Use `codex plugin marketplace list` and `codex plugin list` to inspect the loaded catalog and plugin. Codex can run the local skill and scripts after discovery. Browser-based ChatGPT cannot run this local workflow without the separate hosted design described above.
 
 ### Claude Code
 
-From the repository root, run `claude --plugin-dir plugins/heroes-agent`. In that interactive session, invoke `/heroes-agent:heroes-agent` to verify discovery. This checkout has no root `.claude-plugin/marketplace.json`, so do not use `claude plugin marketplace add` or `claude plugin install` yet. Add and validate a Claude marketplace catalog before those become release instructions.
+From the repository root, validate both the catalog and plugin. Then add the catalog and install the plugin:
+
+```text
+claude plugin validate . --strict
+claude plugin validate plugins/heroes-agent --strict
+claude plugin marketplace add .
+claude plugin install heroes-agent@logic-heroes
+```
+
+Start a new session and invoke `/heroes-agent:heroes-agent` to verify discovery.
 
 ### Cursor
 
-From the repository root, run `cursor-agent --plugin-dir plugins/heroes-agent`. In that interactive session, ask the agent to use the Heroes Agent skill and verify that it responds. This command requires Cursor sign-in and network access. It is a discovery smoke test, not an official schema validator. Cursor IDE installation and public marketplace installation remain pending host tests; this manual does not prescribe an unverified local plugin directory or marketplace command.
+Cursor teams can import the public repository through **Dashboard > Plugins > Import from Repo**. Cursor reads `.cursor-plugin/marketplace.json` and resolves `plugins/heroes-agent`.
+
+For the documented direct local loader, copy or link `plugins/heroes-agent` to `~/.cursor/plugins/local/heroes-agent`. Restart Cursor or run **Developer: Reload Window**, then verify the skill. Cursor does not document a general plugin validation command.
+
+The later host smoke-test slices verify live discovery for Codex, Claude Code, and Cursor. The catalog checks in this slice do not replace those tests.
 
 No installation command above stores a Heroes credential in a manifest or marketplace file.
 
@@ -168,7 +188,9 @@ Use a disposable clean checkout. Do not reuse installed dependencies. These chec
 
 ```text
 python3 <plugin-creator-skill>/scripts/validate_plugin.py plugins/heroes-agent
+claude plugin validate . --strict
 claude plugin validate plugins/heroes-agent --strict
+node plugins/heroes-agent/scripts/validate-portability.mjs
 node plugins/heroes-agent/scripts/setup-tools.mjs --check
 node plugins/heroes-agent/scripts/init-peer.mjs temporary-peer --tenant-key smoke-peer --display-name "Smoke Peer" --dry-run
 ```
@@ -180,25 +202,27 @@ Required inputs and expected results:
 | `init-peer.mjs ... --dry-run` | Node.js 18+, tenant key, display name, destination | Exit `0`; report the resolved destination; write no peer files. |
 | `setup-tools.mjs --check` | Node.js 18+, npm, registry access or a complete cache, writable checkout | Exit `0`; install dependencies into `node_modules`; pass typecheck, all offline package tests, and helper checks. |
 | `validate_plugin.py` | Python 3 and the external Codex `plugin-creator` skill directory | Exit `0`. Replace `<plugin-creator-skill>` with the directory that contains that skill's `scripts/validate_plugin.py`. |
+| `claude plugin validate . --strict` | Installed Claude CLI | Exit `0`; validate the root marketplace without warnings. |
 | `claude plugin validate plugins/heroes-agent --strict` | Installed Claude CLI | Exit `0`. |
+| `validate-portability.mjs` | Node.js 18+ | Exit `0`; resolve all three catalogs to the shared plugin root without parent paths. |
 
 Host discovery is a separate interactive check:
 
 | Host | Command or state | Required inputs | Expected result |
 | --- | --- | --- | --- |
-| Codex | Marketplace install is blocked in this checkout. | A tracked, validated Codex catalog plus host login and network access | After the catalog exists, install with its real name and verify skill discovery in a new session. |
-| Claude Code | `claude --plugin-dir plugins/heroes-agent` | Claude login and network access | Invoke `/heroes-agent:heroes-agent` successfully. |
-| Cursor | `cursor-agent --plugin-dir plugins/heroes-agent` | Cursor login and network access | Verify the skill appears and responds. This is not an unattended validator. |
+| Codex | `codex plugin add heroes-agent@logic-heroes` | Host login and the loaded repository catalog | Verify skill discovery in a new session. |
+| Claude Code | `claude plugin install heroes-agent@logic-heroes` | Claude login and the loaded repository catalog | Invoke `/heroes-agent:heroes-agent` successfully. |
+| Cursor | Direct local loader or Dashboard repository import | Cursor login and a restarted or reloaded host | Verify the skill appears and responds. Cursor has no general validator command. |
 
-Do not run `node plugins/heroes-agent/scripts/validate-portability.mjs` or `claude plugin validate . --strict` as clean-checkout release checks in this catalog-free commit. Both depend on absent root catalog files.
+Run these checks from the repository root. They prove static package and catalog structure. They do not prove live host discovery.
 
 Authenticated Heroes reads require a disposable tenant, its matching `API_KEY`, `API_URL`, network approval, and a known service ID. Mutation and recovery validation require two disposable tenants, valid service IDs and payloads, explicit human decisions, legal railway transitions, and mutation approval. Never print a key. Confirm the resulting state in Heroes. These external tests are not part of offline repository validation.
 
 ## Public-release checklist
 
 - [x] Choose and add a license. Root `LICENSE` (Apache-2.0) and `NOTICE` are included.
-- [ ] Add real repository, homepage, support, privacy, and terms URLs only after they exist.
-- [ ] Run all current offline validation commands. After the missing catalogs exist, test discovery on all three platforms.
+- [x] Add the public repository and organization URLs to supported manifest fields.
+- [ ] Run all current offline validation commands, then test discovery on all three platforms.
 - [ ] Test HANDSHAKE and RFQ against disposable Heroes tenants without exposing credentials.
 - [ ] Confirm the archive contains no `.env`, secrets, signed download URLs, `.DS_Store`, broken symlinks, or machine-local paths.
 - [ ] Repeat the secret scan against the actual Git tracked-file set once the plugin is placed in a Git repository.

@@ -59,31 +59,35 @@ This plugin has no MCP server, hosted authentication flow, dashboard, hooks, cus
 
 The local rate book is provider-owned input, not Heroes state. Bundled sample rates are examples, not live offers.
 
-## Install from a local checkout
+## Install from the repository catalogs
 
 Node.js 18 or newer is required. Run these commands from the repository root.
 
 ### Codex
 
-The Codex adapter is included. Direct local installation needs the repository catalog, which is not present yet.
-
-This page does not provide an unsupported Codex install command.
+```sh
+codex plugin marketplace add .
+codex plugin add heroes-agent@logic-heroes
+```
 
 ### Claude Code
 
 ```sh
-claude --plugin-dir plugins/heroes-agent
+claude plugin validate . --strict
+claude plugin validate plugins/heroes-agent --strict
+claude plugin marketplace add .
+claude plugin install heroes-agent@logic-heroes
 ```
 
-Invoke the skill as `/heroes-agent:heroes-agent` in that session.
+Invoke the skill as `/heroes-agent:heroes-agent` in a new session.
 
 ### Cursor
 
-```sh
-cursor-agent --plugin-dir plugins/heroes-agent
-```
+Cursor teams can import this public repository through **Dashboard > Plugins > Import from Repo**. The catalog is `.cursor-plugin/marketplace.json`.
 
-Public marketplace installation is not available yet.
+For a direct local load, copy or link `plugins/heroes-agent` to `~/.cursor/plugins/local/heroes-agent`. Restart Cursor or run **Developer: Reload Window**.
+
+Live host discovery remains part of the later host smoke-test slices.
 
 ## First run
 

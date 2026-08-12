@@ -1,0 +1,13 @@
+{
+  "name": "logic-heroes",
+  "owner": {
+    "name": "Logic Solutions GmbH"
+  },
+  "plugins": [
+    {
+      "name": "heroes-agent",
+      "source": "plugins/heroes-agent",
+      "description": "Operate a tenant-scoped Logic Heroes peer for HANDSHAKE and solicited RFQ workflows."
+    }
+  ]
+}

@@ -3,17 +3,24 @@
   "version": "0.1.0",
   "description": "Operate a tenant-scoped Logic Heroes peer for HANDSHAKE and solicited RFQ workflows.",
   "author": {
-    "name": "LogicSolutionsGmbH"
+    "name": "Logic Solutions GmbH",
+    "url": "https://github.com/Logic-Solutions-GmbH"
   },
+  "homepage": "https://github.com/Logic-Solutions-GmbH/logic-heroes-plugin",
+  "repository": "https://github.com/Logic-Solutions-GmbH/logic-heroes-plugin",
+  "license": "Apache-2.0",
   "keywords": ["logistics", "rfq", "handshake", "heroes"],
   "skills": "./skills/",
   "interface": {
     "displayName": "Heroes Agent",
     "shortDescription": "Run tenant-scoped Heroes logistics workflows.",
     "longDescription": "Triage logistics documents, run HANDSHAKE and solicited RFQ railways, quote from local rates, and monitor replies.",
-    "developerName": "LogicSolutionsGmbH",
+    "developerName": "Logic Solutions GmbH",
     "category": "Productivity",
     "capabilities": ["Interactive", "Write"],
+    "websiteURL": "https://github.com/Logic-Solutions-GmbH/logic-heroes-plugin",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/logo.png",
     "defaultPrompt": [
       "Set up a Heroes peer workspace for my tenant.",
       "Triage this intake document and start a handshake.",
