@@ -67,11 +67,28 @@ The repository has one catalog for each host. Each catalog resolves the same `pl
 From the repository root, load the repository catalog and install the plugin:
 
 ```text
-codex plugin marketplace add .
-codex plugin add heroes-agent@logic-heroes
+codex plugin marketplace add . --json
+codex plugin add heroes-agent@logic-heroes --json
+codex plugin list --json
 ```
 
-Use `codex plugin marketplace list` and `codex plugin list` to inspect the loaded catalog and plugin. Codex can run the local skill and scripts after discovery. Browser-based ChatGPT cannot run this local workflow without the separate hosted design described above.
+Record `installedPath` from the `codex plugin add heroes-agent@logic-heroes --json` result. It is the plugin root for setup, initialization, and tool commands. The list result must show `heroes-agent@logic-heroes` as installed and enabled.
+
+Start a new Codex session after installation. First, prove skill discovery without file or network work:
+
+```text
+Use $heroes-agent. Read its installed instructions. State the two human values required before peer initialization. Do not create files or call a network service.
+```
+
+The response must ask for the tenant key and display name. The next prompt uses `smoke-peer` and `Smoke Peer` as examples. Replace both with the exact operator-supplied values:
+
+```text
+Use $heroes-agent. Create one peer workspace at run/smoke-peer. The tenant key is smoke-peer. The display name is Smoke Peer. Preserve the display name exactly. Do not use a network service. Stop when a Heroes API key is required.
+```
+
+The agent must preserve `Smoke Peer` exactly, create the peer with the installed helper, and stop at the blank `API_KEY`. The install JSON proves catalog state. The new-session response and peer files prove skill discovery and use. One result does not replace the other.
+
+Use `codex plugin marketplace list --json` and `codex plugin list --json` to inspect the loaded catalog and plugin. Browser-based ChatGPT cannot run this local workflow without the separate hosted design described above.
 
 ### Claude Code
 
@@ -138,7 +155,7 @@ At runtime, `self/.env` wins over root `.env`; either file wins over inherited s
 
 Representative prompts:
 
-- “Set up a Heroes peer workspace for tenant `globex`; show me which local values I still need to provide.”
+- “Set up a Heroes peer workspace for tenant `smoke-peer`; show me which local values I still need to provide.”
 - “A booking PDF landed in `counterparties/acme/intake/`. Triage it and start the legal HANDSHAKE move.”
 - “Inspect this incoming RFQ, find the applicable filed rate, prepare the quote, and watch for a reply.”
 - “Check service `…`, download new attachments, and tell me whether a business decision is due.”
@@ -210,7 +227,7 @@ Host discovery is a separate interactive check:
 
 | Host | Command or state | Required inputs | Expected result |
 | --- | --- | --- | --- |
-| Codex | `codex plugin add heroes-agent@logic-heroes` | Host login and the loaded repository catalog | Verify skill discovery in a new session. |
+| Codex | Add with `--json`, record `installedPath`, then start a new session with the exact `$heroes-agent` prompts above | Host login and the loaded repository catalog | Install JSON shows enabled state; the discovery response asks for tenant key and display name; onboarding preserves the exact display name and stops at blank `API_KEY`. |
 | Claude Code | `claude plugin install heroes-agent@logic-heroes` | Claude login and the loaded repository catalog | Invoke `/heroes-agent:heroes-agent` successfully. |
 | Cursor | Direct local loader or Dashboard repository import | Cursor login and a restarted or reloaded host | Verify the skill appears and responds. Cursor has no general validator command. |
 
@@ -222,12 +239,13 @@ Authenticated Heroes reads require a disposable tenant, its matching `API_KEY`, 
 
 - [x] Choose and add a license. Root `LICENSE` (Apache-2.0) and `NOTICE` are included.
 - [x] Add the public repository and organization URLs to supported manifest fields.
-- [ ] Run all current offline validation commands, then test discovery on all three platforms.
+- [x] Run all current offline validation commands. See `docs/release-evidence/slice-6-offline-gate.md`.
+- [ ] Test discovery on all three platforms.
 - [ ] Test HANDSHAKE and RFQ against disposable Heroes tenants without exposing credentials.
-- [ ] Confirm the archive contains no `.env`, secrets, signed download URLs, `.DS_Store`, broken symlinks, or machine-local paths.
-- [ ] Repeat the secret scan against the actual Git tracked-file set once the plugin is placed in a Git repository.
+- [x] Confirm the archive contains no `.env`, secrets, signed download URLs, `.DS_Store`, broken symlinks, or machine-local paths. See the Slice 6 evidence.
+- [x] Repeat the secret scan against the actual Git tracked-file set. The final Slice 6 gate scanned 54 tracked files.
 - [ ] Verify watcher step-change and attachment-only change behavior against the service API.
 - [ ] Confirm marketplace ownership and public submission requirements for each platform.
-- [ ] Review sample rate data before publication; it is demonstrative business data, not a live rate offer.
+- [x] Review sample rate data before publication. The owner approved fictitious carrier identifiers and round example values in Slice 6.
 
 The repository is licensed under Apache-2.0; see root `LICENSE` and `NOTICE`.

@@ -192,7 +192,7 @@ for (const catalog of catalogs) {
   if (catalog.file === '.agents/plugins/marketplace.json') {
     if (entry.source?.source !== 'local') errors.push('wrong Codex source type');
     if (entry.policy?.installation !== 'AVAILABLE') errors.push('wrong Codex installation policy');
-    if (entry.policy?.authentication !== 'ON_INSTALL') errors.push('wrong Codex authentication policy');
+    if (entry.policy?.authentication !== 'ON_USE') errors.push('wrong Codex authentication policy');
     if (entry.category !== 'Productivity') errors.push('wrong Codex category');
   }
   const source = catalog.source(entry);
@@ -219,6 +219,20 @@ for (const assumption of ['CLAUDE_PLUGIN_ROOT', 'CLAUDE_SKILL_DIR', 'CODEX_HOME'
   if (skill.includes(assumption)) errors.push(`platform-only assumption in shared skill: ${assumption}`);
 }
 if (!skill.startsWith('---\nname: heroes-agent\ndescription:')) errors.push('shared skill frontmatter is not portable');
+if (
+  !skill.includes(
+    'Preserve the human-supplied display name exactly, including punctuation and spacing. Never normalize or embellish it.',
+  )
+) {
+  errors.push('shared skill does not preserve the exact human-supplied display name');
+}
+if (
+  !skill.includes(
+    'In the first new session that uses this installed plugin, before any HANDSHAKE, RFQ, or authenticated Heroes tool call:',
+  )
+) {
+  errors.push('shared skill does not require onboarding in the first new plugin session');
+}
 
 if (errors.length) {
   if (headCommit) console.log(`HEAD commit: ${headCommit}`);

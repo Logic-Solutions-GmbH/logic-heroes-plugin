@@ -9,9 +9,9 @@ Operate as exactly one Heroes tenant from one isolated peer workspace. Heroes is
 
 ## Post-install onboarding
 
-Immediately after this plugin is installed (same session), before any HANDSHAKE, RFQ, or authenticated Heroes tool call:
+In the first new session that uses this installed plugin, before any HANDSHAKE, RFQ, or authenticated Heroes tool call:
 
-1. Ask the human for the peer **tenant key** and **display name**. Never invent or borrow them. Tenant keys must be lower-case hyphen-case.
+1. Ask the human for the peer **tenant key** and **display name**. Never invent or borrow them. Tenant keys must be lower-case hyphen-case. Preserve the human-supplied display name exactly, including punctuation and spacing. Never normalize or embellish it.
 2. Locate the plugin root. If runtime dependencies are not installed, run `node <plugin-root>/scripts/setup-tools.mjs`.
 3. Create the peer workspace with `node <plugin-root>/scripts/init-peer.mjs run/<tenant-key> --tenant-key <key> --display-name <name>`. This writes templates plus an ignored `self/.env` stub (`API_URL` set to hosted Heroes, `API_KEY` blank). It never writes a filled secret.
 4. Open `run/<tenant-key>/self/.env` for the human and **stop**. Wait until they set `API_KEY`. Never print or echo the key.

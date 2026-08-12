@@ -66,9 +66,26 @@ Node.js 18 or newer is required. Run these commands from the repository root.
 ### Codex
 
 ```sh
-codex plugin marketplace add .
-codex plugin add heroes-agent@logic-heroes
+codex plugin marketplace add . --json
+codex plugin add heroes-agent@logic-heroes --json
+codex plugin list --json
 ```
+
+Record `installedPath` from the `codex plugin add heroes-agent@logic-heroes --json` result. Start a new Codex session after installation.
+
+First, prove skill discovery without file or network work:
+
+```text
+Use $heroes-agent. Read its installed instructions. State the two human values required before peer initialization. Do not create files or call a network service.
+```
+
+The next prompt uses `smoke-peer` and `Smoke Peer` as examples. Replace both with the exact operator-supplied values:
+
+```text
+Use $heroes-agent. Create one peer workspace at run/smoke-peer. The tenant key is smoke-peer. The display name is Smoke Peer. Preserve the display name exactly. Do not use a network service. Stop when a Heroes API key is required.
+```
+
+The install JSON proves catalog state. The new-session response proves skill discovery and use.
 
 ### Claude Code
 
@@ -91,13 +108,16 @@ Live host discovery remains part of the later host smoke-test slices.
 
 ## First run
 
+Record the host plugin root. Codex uses the `installedPath` from `codex plugin add heroes-agent@logic-heroes --json`. A repository checkout uses `plugins/heroes-agent`.
+
 Set up the shared tools, then initialize one peer workspace:
 
 ```sh
-node plugins/heroes-agent/scripts/setup-tools.mjs
+plugin_root="<host plugin root>"
 tenant_key="example-peer"
 display_name="Example Peer"
-node plugins/heroes-agent/scripts/init-peer.mjs "run/$tenant_key" --tenant-key "$tenant_key" --display-name "$display_name"
+node "$plugin_root/scripts/setup-tools.mjs"
+node "$plugin_root/scripts/init-peer.mjs" "run/$tenant_key" --tenant-key "$tenant_key" --display-name "$display_name"
 ```
 
 Replace the two example values before initialization. The tenant key must use lowercase hyphen-case.
