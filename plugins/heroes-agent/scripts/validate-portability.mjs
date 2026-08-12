@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execFileSync } from 'node:child_process';
 import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,7 +14,18 @@ const outputs = [
 ];
 const errors = [];
 const files = [];
-const hasGitRepository = existsSync(join(repoRoot, '.git'));
+let hasGitRepository = false;
+let headCommit;
+let scanMode = 'declared outputs';
+
+try {
+  const gitRoot = execFileSync('git', ['-C', repoRoot, 'rev-parse', '--show-toplevel'], {
+    encoding: 'utf8',
+  }).trim();
+  hasGitRepository = resolve(gitRoot) === repoRoot;
+} catch {
+  // Git is optional for installed plugin copies. The fallback is intentionally narrower.
+}
 
 function walk(path) {
   const stat = lstatSync(path);
@@ -24,29 +36,103 @@ function walk(path) {
     for (const entry of readdirSync(path)) walk(join(path, entry));
   } else files.push(path);
 }
-for (const output of outputs) walk(output);
+if (hasGitRepository) {
+  headCommit = execFileSync('git', ['-C', repoRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const status = execFileSync(
+    'git',
+    ['-C', repoRoot, 'status', '--porcelain=v1', '-z', '--untracked-files=all'],
+    { encoding: 'utf8' },
+  );
+  if (status.length) errors.push('release-state: working tree is not clean');
+
+  const trackedPaths = execFileSync('git', ['-C', repoRoot, 'ls-files', '-z'], { encoding: 'utf8' })
+    .split('\0')
+    .filter(Boolean);
+  const stagedEntries = execFileSync('git', ['-C', repoRoot, 'ls-files', '--stage', '-z'], { encoding: 'utf8' })
+    .split('\0')
+    .filter(Boolean);
+  for (const entry of stagedEntries) {
+    const tab = entry.indexOf('\t');
+    const metadata = tab === -1 ? entry : entry.slice(0, tab);
+    const path = tab === -1 ? entry : entry.slice(tab + 1);
+    if (metadata.startsWith('120000 ')) errors.push(`tracked-symlink: ${path}`);
+  }
+  for (const path of trackedPaths) {
+    if (isAbsolute(path) || path.split(/[\\/]/).includes('..')) {
+      errors.push(`unsafe-tracked-path: ${path}`);
+      continue;
+    }
+    files.push(resolve(repoRoot, path));
+  }
+  scanMode = 'tracked files';
+} else {
+  if (!existsSync(pluginRoot)) errors.push('missing-required-output: plugins/heroes-agent');
+  for (const output of outputs) {
+    if (existsSync(output)) walk(output);
+  }
+}
+
+const secretRules = [
+  ['private-key', /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/],
+  ['jwt', /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/],
+  ['github-token', /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/],
+  ['aws-access-key', /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/],
+  ['api-token', /\b(?:lh_[A-Za-z0-9_-]{8,}|sk-[A-Za-z0-9_-]{8,})\b/],
+  [
+    'signed-url-or-query-credential',
+    /[?&](?:X-Amz-(?:Algorithm|Credential|Signature)|X-Goog-(?:Algorithm|Credential|Signature)|Signature|sig|token|access_token)=/i,
+  ],
+];
+const uncPrefix = '\\\\' + '\\\\';
+const localPathRules = [
+  /\/(?:Users|home)\/[A-Za-z0-9._ -]+(?=\/|[\s'"`)]|$)/,
+  /[A-Za-z]:[\\/]Users[\\/][^\\/\s'"`]+/,
+  new RegExp(`${uncPrefix}[A-Za-z0-9._$-]+\\\\[A-Za-z0-9._$ -]+`),
+  /\/(?:private\/)?var\/folders\/[A-Za-z0-9._/-]+/,
+  /\/mnt\/[a-zA-Z]\/Users\/[A-Za-z0-9._ -]+(?=\/|[\s'"`)]|$)/,
+];
+const forbiddenMetadata = /(^|\/)(?:\.DS_Store|Thumbs\.db|__MACOSX|\._[^/]+|[^/]+\.(?:swp|swo|swn)|\.#[^/]+|[^/]+~)(?:\/|$)/i;
+
+function decodeText(bytes, rel) {
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) {
+    if ((bytes.length - 2) % 2 !== 0) {
+      errors.push(`invalid-utf16: ${rel}`);
+      return null;
+    }
+    return bytes.subarray(2).toString('utf16le');
+  }
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+    const content = Buffer.from(bytes.subarray(2));
+    if (content.length % 2 !== 0) {
+      errors.push(`invalid-utf16: ${rel}`);
+      return null;
+    }
+    content.swap16();
+    return content.toString('utf16le');
+  }
+  if (bytes.includes(0)) return null;
+  return bytes.toString('utf8');
+}
 
 for (const file of files) {
   const rel = relative(repoRoot, file);
-  if (basename(file) === '.DS_Store') errors.push(`forbidden metadata: ${rel}`);
-  if (basename(file) === '.env') errors.push(`filled environment file: ${rel}`);
-  const text = readFileSync(file, 'utf8');
-  if (/\/(?:Users|home)\/[A-Za-z0-9._ -]+\//.test(text) || /[A-Za-z]:\\Users\\/.test(text)) {
-    errors.push(`local machine path: ${rel}`);
+  if (forbiddenMetadata.test(rel)) errors.push(`forbidden-metadata: ${rel}`);
+  const name = basename(file);
+  if (name.startsWith('.env') && name !== '.env.example') errors.push(`environment-file: ${rel}`);
+  const bytes = readFileSync(file);
+  const text = decodeText(bytes, rel);
+  if (text === null) continue;
+  for (const [category, pattern] of secretRules) {
+    if (pattern.test(text)) errors.push(`${category}: ${rel}`);
   }
-  if (
-    /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/.test(text) ||
-    /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/.test(text) ||
-    /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/.test(text) ||
-    /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/.test(text) ||
-    /\b(?:lh_[A-Za-z0-9_-]{8,}|sk-[A-Za-z0-9_-]{8,})\b/.test(text)
-  ) {
-    errors.push(`token-like value: ${rel}`);
-  }
+  if (localPathRules.some((pattern) => pattern.test(text))) errors.push(`machine-local-path: ${rel}`);
   if (basename(file) === '.env.example') {
     for (const line of text.split(/\r?\n/)) {
-      if (!line || line.startsWith('#')) continue;
-      if (!/^[A-Z][A-Z0-9_]*=$/.test(line)) errors.push(`filled or invalid env example line in ${rel}`);
+      if (!line.trim() || line.trimStart().startsWith('#')) continue;
+      if (!/^[A-Z][A-Z0-9_]*=$/.test(line)) {
+        errors.push(`nonblank-or-invalid-env-example: ${rel}`);
+        break;
+      }
     }
   }
 }
@@ -135,10 +221,12 @@ for (const assumption of ['CLAUDE_PLUGIN_ROOT', 'CLAUDE_SKILL_DIR', 'CODEX_HOME'
 if (!skill.startsWith('---\nname: heroes-agent\ndescription:')) errors.push('shared skill frontmatter is not portable');
 
 if (errors.length) {
+  if (headCommit) console.log(`HEAD commit: ${headCommit}`);
+  console.log(`Scan scope: ${files.length} ${scanMode}.`);
   console.error(errors.join('\n'));
   process.exit(1);
 }
-console.log(`Portability validation passed (${files.length} owned output files scanned).`);
-if (!hasGitRepository) {
-  console.log('Tracked-file scan unavailable: no Git repository found; declared plugin and marketplace outputs were scanned directly.');
-}
+if (headCommit) console.log(`HEAD commit: ${headCommit}`);
+console.log(`Portability validation passed (${files.length} ${scanMode} scanned).`);
+if (!hasGitRepository)
+  console.log('Reduced coverage: Git is unavailable; only declared plugin and marketplace outputs were scanned.');
