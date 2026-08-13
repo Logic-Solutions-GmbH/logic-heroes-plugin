@@ -1,6 +1,6 @@
 # Heroes Agent
 
-Heroes Agent turns a local agent into one tenant-scoped logistics peer for Logic Heroes. It triages deposited documents, drives legal HANDSHAKE and solicited one-to-one RFQ transitions, quotes from a local CSV rate book, downloads service attachments, and watches for counterparty changes. The original demo remains outside this plugin unchanged.
+Heroes Agent turns a local agent into one tenant-scoped logistics peer for Logic Heroes. It triages deposited documents, drives legal HANDSHAKE and solicited one-to-one RFQ transitions, quotes from a local rate catalog, downloads service attachments, and watches for counterparty changes. The original demo remains outside this plugin unchanged.
 
 The plugin targets local Codex, Claude Code, and Cursor agents. It does not provide equivalent browser-based ChatGPT operation: that would require a hosted MCP server, OAuth/user tenancy, durable hosting, and a replacement for local filesystem intake.
 
@@ -229,19 +229,21 @@ node <plugin-root>/scripts/run-tool.mjs request-quotation.ts <payload-folder> --
 
 Use it only when RFQ service creation did not succeed. It skips duplicate journey creation, but it cannot prevent a duplicate service after a later partial failure.
 
-For an offline rate test, copy `self/rate-book/sample-rates.csv` to `self/rate-book/inbox/sample-rates.csv`. Then preview ingestion, ingest it, and query the created index:
+For a rate-contract test, first save the current Heroes catalog. Then copy `self/rate-book/sample-rates.csv` to `self/rate-book/inbox/sample-rates.csv`, preview the import, import it, and query the created index:
 
 ```text
+node <plugin-root>/scripts/run-tool.mjs sync-rate-catalog.ts
 node <plugin-root>/scripts/run-tool.mjs ingest-rates.ts --dry-run
-node <plugin-root>/scripts/run-tool.mjs ingest-rates.ts
-node <plugin-root>/scripts/run-tool.mjs find-rate.ts --origin NLRTM --dest USNYC --equipment 40HC
+node <plugin-root>/scripts/run-tool.mjs ingest-rates.ts --approve-by "<operator name>"
+node <plugin-root>/scripts/run-tool.mjs find-rate.ts --service-key fcl_freight_forwarding --origin NLRTM --dest USNYC --asset-type container --asset-subtype 40HC --date 2026-09-01
+node <plugin-root>/scripts/run-tool.mjs export-rates.ts
 ```
 
-`ingest-rates.ts --dry-run` still needs an existing peer workspace and inbox directory. `find-rate.ts` exits `2` until `self/rate-book/index/rate-book.csv` exists.
+`sync-rate-catalog.ts` is read-only and uses the existing peer credential. `ingest-rates.ts --dry-run` still needs an existing inbox. `find-rate.ts` exits `2` until both `heroes-catalog.json` and `rate-catalog.json` exist. It exits `4` for missing facts, ambiguity, or invalid data. It never selects the cheapest result.
 
 ## Local data and the system of record
 
-The peer workspace stores local identity, ignored credentials, intake deposits, processed copies, provider-owned CSV rates, railway copies, and downloaded attachments. Local documents are inputs or downloaded projections. Provider-owned rates can select a quote, but they are pricing input rather than shared Heroes state.
+The peer workspace stores local identity, ignored credentials, intake deposits, processed copies, the provider-owned rate catalog, railway copies, and downloaded attachments. CSV is an import and export adapter. Local documents are inputs or downloaded projections. Provider-owned rates can support a quote, but they are pricing evidence rather than shared Heroes state.
 
 Heroes stores the authoritative journey, service, strategy step, event, participant, and attachment state. Legal moves and counterparty state pass through the Heroes railway and API. A local file cannot prove acceptance, rejection, quotation, or the current service step. If local data conflicts with Heroes, the Heroes state controls the next legal move. Local data can be recreated or replaced; the shared legal state must come from Heroes.
 

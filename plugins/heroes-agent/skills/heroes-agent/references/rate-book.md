@@ -1,11 +1,79 @@
-# Local CSV rate book
+# Local rate catalog
 
-Rate sheets arrive in `self/rate-book/inbox/`. `ingest-rates.ts` accepts CSV, normalizes recognized headers into `self/rate-book/index/rates.csv`, records provenance, and moves successfully parsed source files to `processed/`. Unsupported formats remain in place. Use `--dry-run` to inspect without writing or moving files.
+The canonical local store is `self/rate-book/index/rate-catalog.json`. It uses contract version `1.0`.
 
-`find-rate.ts` filters by origin, destination, equipment, and date and can normalize configured aliases. Its stable exit codes are:
+One rate card resembles one Heroes `OFFER` journey. Each rate rule resembles one service within that offer. Heroes controls service keys, location roles, asset types, asset subtypes, participant roles, and strategy vocabulary. The local peer controls provider charges, conditions, source evidence, and approval.
 
-- `0`: a match was found;
-- `3`: the rate book exists but no matching valid rate was found;
-- `2`: no normalized rate book exists.
+## Prepare the Heroes catalog
 
-An unambiguous, current filed rate may be quoted mechanically. Ask the human when there is no match, stale or ambiguous data, or a counter would go below the filed rate. Quote documents should include price, currency, validity, surcharges, and `sourceRef`.
+Run this read-only command from each peer workspace:
+
+```text
+node <plugin-root>/scripts/run-tool.mjs sync-rate-catalog.ts
+```
+
+It uses the current `self/.env` credential. It writes `self/rate-book/index/heroes-catalog.json` with a response hash. It never writes or prints the credential.
+
+The command reads service keys, assets, strategy templates, and offer-search role values. It requests asset subtypes separately for every asset type because that catalog is dependent.
+
+## Import CSV
+
+CSV is an adapter. It is not the authority. Place stable adapter CSV files in `self/rate-book/inbox/`, then run:
+
+```text
+node <plugin-root>/scripts/run-tool.mjs ingest-rates.ts --dry-run
+node <plugin-root>/scripts/run-tool.mjs ingest-rates.ts --approve-by "<operator name>"
+```
+
+Each initial CSV row must be `draft`. The explicit `--approve-by` action records the human approval during import. Approved CSV exports include a content hash. The importer rejects a changed approved export.
+
+Each CSV row describes one charge. Repeat `cardId` and `ruleId` to attach several charges to one rule. A charge uses either `amount` or `tiersJson`. It can also use `minimum` and `maximum`. The simple columns support common locations, validity, and one asset. The JSON columns preserve all timeframes, source evidence, and nested applicability during export and re-import.
+
+The importer rejects:
+
+- unknown Heroes service keys, asset types, asset subtypes, and roles;
+- missing locations, charges, evidence, or approval data;
+- non-positive amounts, invalid bounds, invalid tiers, and invalid currency codes;
+- conflicting repeated card or rule data;
+- duplicate card IDs already present in the local catalog.
+
+Successfully imported files move to `processed/`. A dry run changes no file.
+
+## Discover one safe result
+
+Use Heroes offer facts in the query:
+
+```text
+node <plugin-root>/scripts/run-tool.mjs find-rate.ts \
+  --service-key fcl_freight_forwarding \
+  --origin NLRTM --dest USNYC \
+  --asset-type container --asset-subtype 40HC \
+  --date 2026-09-01 --json
+```
+
+For a single-location service, use `--location <code>:<role>`. Repeat `--location` for each extra location. Repeat `--asset <type>:<subtype>` for each extra asset. Repeat `--participant <tenant-key>:<role>` for each participant. Use `--strategy <key>` and `--strategy-step <step>` when a rule requires those facts. Each stored timeframe uses the Heroes offer-search `{from,to}` shape. The saved Heroes snapshot supplies all accepted role and strategy values.
+
+Exit codes are stable:
+
+- `0`: exactly one complete, approved, current rule applies;
+- `3`: no approved current rule applies;
+- `4`: the query is invalid, required facts are missing, the result is ambiguous, or the catalog is invalid;
+- `2`: the rate index or Heroes catalog snapshot is missing.
+
+The command never selects the cheapest candidate. It reports every required fact absent from the query. Two applicable complete rules are ambiguous and require human resolution. A card whose catalog hash differs from the current Heroes snapshot is stale and cannot support an automatic quote.
+
+## Export CSV
+
+Run:
+
+```text
+node <plugin-root>/scripts/run-tool.mjs export-rates.ts
+```
+
+The default output is `self/rate-book/index/rate-catalog.csv`. It contains one row per charge. Its JSON columns preserve locations, assets, participants, strategy, and conditions for re-import.
+
+## Product boundary
+
+Arbitrary-source extraction is not part of this contract slice. An agent can later extract pasted text, Excel, PDF, email, or OCR input into a reviewable draft. A human must approve that draft before import.
+
+The local rate catalog is provider-owned pricing evidence. Heroes remains authoritative for shared workflow and legal state.

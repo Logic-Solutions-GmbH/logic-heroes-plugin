@@ -2,7 +2,7 @@
 
 Heroes Agent connects a local Codex, Claude Code, or Cursor agent to one Logic Heroes tenant.
 
-It processes logistics documents, follows allowed HANDSHAKE and RFQ state changes, uses a local rate book, and monitors replies and attachments.
+It processes logistics documents, follows allowed HANDSHAKE and RFQ state changes, uses a local rate catalog, and monitors replies and attachments.
 
 For installation details, onboarding, prompts, validation, and operational guidance, read the **[Heroes Agent operations manual](plugins/heroes-agent/README.md)**.
 
@@ -20,7 +20,7 @@ Heroes groups a shipment in a journey. A service is one piece of work within tha
 
 A railway defines the allowed service state changes. The agent checks it before acting.
 
-The agent can automate discovery and clear rate matches. A human decides acceptance, rejection, counters, and exceptional pricing.
+The agent can automate discovery only when one complete, approved, current rate applies. A human resolves missing facts, ambiguity, and exceptional pricing.
 
 Heroes is the system of record. Local folders hold intake, identity, configuration, rates, processed documents, and downloaded copies.
 
@@ -37,8 +37,8 @@ Heroes is the system of record. Local folders hold intake, identity, configurati
 ### Solicited one-to-one RFQ
 
 1. The requester stages shipping instructions and requests a quotation from one provider.
-2. The provider inspects the request and searches its local rate book.
-3. The provider uses a clear, current rate match or asks for human judgment.
+2. The provider inspects the request and searches its Heroes-shaped local rate catalog.
+3. The provider uses one complete result. It asks for human judgment for every other result.
 4. The provider sends one quote attachment and its provider reference.
 5. The requester reviews the terms. A human directs acceptance, counter, or rejection.
 6. Either peer watches the service whenever it expects another reply.
@@ -57,7 +57,7 @@ Foreground watching is the portable baseline. Host approvals differ, and durable
 
 This plugin has no MCP server, hosted authentication flow, dashboard, hooks, custom UI, or subagent requirement. Browser-based ChatGPT operation needs a separate hosted design and is not implemented.
 
-The local rate book is provider-owned input, not Heroes state. Bundled sample rates are examples, not live offers.
+The local rate catalog is provider-owned evidence, not Heroes state. Heroes controls offer vocabulary. CSV is an adapter. Bundled sample rates are examples.
 
 ## Install from the repository catalogs
 

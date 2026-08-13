@@ -1,110 +1,121 @@
-/**
- * find-rate — look up a rate for a lane in the provider's rate-book.
- *
- * The retrieval half of the rate-book: given a lane (and optionally equipment,
- * carrier, validity date) it scans the canonical index and returns the best
- * match + provenance, or reports no match. This is what lets the taker QUOTE an
- * RFQ without asking the human — the agent calls this, and only escalates when
- * there's no match. It reads just the index, never the original rate sheet.
- *
- * Exit codes: 0 = matched, 3 = no match, 2 = no rate-book found.
- *
- * Usage:
- *   npx tsx find-rate.ts --origin <LOCODE> --dest <LOCODE> \
- *       [--equipment <type>] [--carrier <name>] [--date <YYYY-MM-DD>] \
- *       [--index <path>] [--aliases <path>] [--limit <n>] [--json]
- *
- * Example:
- *   npx tsx find-rate.ts --origin NLRTM --dest USNYC --equipment 40HC --date 2026-07-20
- */
-import {
-  run,
-  parseArgs,
-  flagString,
-  csvToObjects,
-  loadAliases,
-  matchRates,
-  heading,
-  kv,
-  type RateRow,
-  type RateQuery,
-} from './lib';
+/** Deterministic discovery against the versioned Heroes-shaped local rate catalog. */
 import { existsSync, readFileSync } from 'node:fs';
+import { flagString, heading, kv, parseArgs, run } from './lib';
+import {
+  discoverRate, type HeroesRateCatalog, type LocationRole, type RateCatalog,
+  type RateDiscoveryQuery,
+} from './rate-contract';
 
 run(async () => {
-  const { flags } = parseArgs(process.argv.slice(2));
-  const origin = flagString(flags, 'origin');
-  const dest = flagString(flags, 'dest');
-  const equipment = flagString(flags, 'equipment');
-  const carrier = flagString(flags, 'carrier');
-  const date = flagString(flags, 'date');
-  const indexPath = flagString(flags, 'index') ?? 'self/rate-book/index/rate-book.csv';
-  const aliasesPath = flagString(flags, 'aliases') ?? 'self/rate-book/index/aliases.csv';
-  const limit = Number(flagString(flags, 'limit') ?? '5');
+  const argv = process.argv.slice(2);
+  const { flags } = parseArgs(argv);
+  const repeated = (name: string): string[] => {
+    const values: string[] = [];
+    for (let index = 0; index < argv.length; index++) {
+      if (argv[index] === `--${name}` && argv[index + 1] && !argv[index + 1].startsWith('--')) {
+        values.push(argv[index + 1]);
+        index++;
+      }
+    }
+    return values;
+  };
+  const serviceKey = flagString(flags, 'service-key');
+  const origins = repeated('origin');
+  const destinations = repeated('dest');
+  const locations = repeated('location');
+  const assetType = flagString(flags, 'asset-type');
+  const assetSubtype = flagString(flags, 'asset-subtype');
+  const assetValues = repeated('asset');
+  const activeOn = flagString(flags, 'date');
+  const timeframeValues = repeated('timeframe');
+  const participantValues = repeated('participant');
+  const strategyKey = flagString(flags, 'strategy');
+  const strategyStep = flagString(flags, 'strategy-step');
+  const indexPath = flagString(flags, 'index') ?? 'self/rate-book/index/rate-catalog.json';
+  const catalogPath = flagString(flags, 'catalog') ?? 'self/rate-book/index/heroes-catalog.json';
   const jsonOnly = flags.json === true;
 
-  if (!origin || !dest) {
-    throw new Error(
-      'Usage: npx tsx find-rate.ts --origin <LOCODE> --dest <LOCODE> ' +
-        '[--equipment <type>] [--carrier <name>] [--date <YYYY-MM-DD>] [--index <path>]',
-    );
+  const failQuery = (reason: string): never => {
+    console.log(JSON.stringify({ status: 'invalid', match: false, reason, candidates: [] }, null, 2));
+    process.exit(4);
+  };
+  const requiredServiceKey = serviceKey ?? failQuery('--service-key is required');
+  const locodes: RateDiscoveryQuery['locodes'] = [];
+  for (const origin of origins) locodes.push({ code: origin, role: 'origin' });
+  for (const destination of destinations) locodes.push({ code: destination, role: 'destination' });
+  for (const location of locations) {
+    const split = location.lastIndexOf(':');
+    if (split < 1 || split === location.length - 1) {
+      failQuery('--location must use <code>:<role>');
+    }
+    locodes.push({ code: location.slice(0, split), role: location.slice(split + 1) as LocationRole });
   }
-
-  if (!existsSync(indexPath)) {
-    console.log(
-      JSON.stringify(
-        {
-          match: false,
-          confidence: 'none',
-          reason: `no rate-book at ${indexPath} — run ingest-rates first`,
-          best: null,
-          candidates: [],
-        },
-        null,
-        2,
-      ),
-    );
+  const participants: NonNullable<RateDiscoveryQuery['participants']> = [];
+  for (const participant of participantValues) {
+    const split = participant.lastIndexOf(':');
+    if (split < 1 || split === participant.length - 1) {
+      failQuery('--participant must use <tenant-key>:<role>');
+    }
+    participants.push({ tenantKey: participant.slice(0, split), role: participant.slice(split + 1) });
+  }
+  const strategy = strategyKey ? { strategyKey, currentStep: strategyStep } : undefined;
+  if (strategyStep && !strategyKey) failQuery('--strategy-step requires --strategy');
+  if (assetSubtype && !assetType) failQuery('--asset-subtype requires --asset-type');
+  const assetTypes: NonNullable<RateDiscoveryQuery['assetTypes']> = [];
+  if (assetType) assetTypes.push({ type: assetType, subtypes: assetSubtype ? [assetSubtype] : [] });
+  for (const value of assetValues) {
+    const [type, subtype, extra] = value.split(':');
+    if (!type || extra !== undefined) failQuery('--asset must use <type> or <type>:<subtype>');
+    const existing = assetTypes.find((asset) => asset.type === type);
+    if (existing && subtype && !existing.subtypes.includes(subtype)) existing.subtypes.push(subtype);
+    else if (!existing) assetTypes.push({ type, subtypes: subtype ? [subtype] : [] });
+  }
+  const timeframes: NonNullable<RateDiscoveryQuery['timeframes']> = [];
+  if (activeOn) timeframes.push({ from: activeOn, to: activeOn });
+  for (const value of timeframeValues) {
+    const [from, to, extra] = value.split(':');
+    if (extra !== undefined || (!from && !to)) failQuery('--timeframe must use <from>:<to> with either bound allowed');
+    timeframes.push({ ...(from ? { from } : {}), ...(to ? { to } : {}) });
+  }
+  if (!existsSync(indexPath) || !existsSync(catalogPath)) {
+    const result = {
+      status: 'invalid', match: false,
+      reason: `rate index and Heroes catalog are required (${indexPath}; ${catalogPath})`,
+      query: { serviceKey: requiredServiceKey, locodes, timeframes, assetTypes, participants, strategy }, candidates: [],
+    };
+    console.log(JSON.stringify(result, null, 2));
     process.exit(2);
   }
 
-  const rows = csvToObjects(readFileSync(indexPath, 'utf8')) as unknown as RateRow[];
-  const aliases = loadAliases(aliasesPath);
-  const q: RateQuery = { origin, dest, equipment, carrier, date };
-  const m = matchRates(rows, q, aliases);
-  const top = m.candidates.slice(0, Number.isFinite(limit) && limit > 0 ? limit : 5);
-
-  const result = {
-    match: m.best !== null,
-    confidence: m.confidence,
-    query: q,
-    reasons: m.reasons,
-    best: m.best,
-    candidates: top,
-  };
-
-  if (!jsonOnly) {
-    heading(`Rate lookup ${origin} → ${dest}`);
-    kv('equipment', equipment ?? '(any)');
-    if (carrier) kv('carrier', carrier);
-    if (date) kv('date', date);
-    kv('index rows', rows.length);
-
-    heading(m.best ? `Match (${m.confidence})` : 'No match');
-    for (const r of m.reasons) console.log(`  • ${r}`);
-    if (m.best) {
-      kv('price', `${m.best.price} ${m.best.currency}`.trim());
-      kv('equipment', m.best.equipment || '(unspecified)');
-      if (m.best.carrier) kv('carrier', m.best.carrier);
-      if (m.best.validFrom || m.best.validTo) kv('validity', `${m.best.validFrom || '…'} → ${m.best.validTo || '…'}`);
-      if (m.best.surcharges) kv('surcharges', m.best.surcharges);
-      kv('source', `${m.best.sourceFile} (${m.best.sourceRef})`);
-      if (top.length > 1) kv('alternatives', `${top.length - 1} more on this lane`);
-    } else {
-      console.log('  → escalate to the human: no rate on file for this lane.');
-    }
-    console.log('');
+  const query = { serviceKey: requiredServiceKey, locodes, timeframes, assetTypes, participants, strategy };
+  let result;
+  try {
+    const rateCatalog = JSON.parse(readFileSync(indexPath, 'utf8')) as RateCatalog;
+    const heroesCatalog = JSON.parse(readFileSync(catalogPath, 'utf8')) as HeroesRateCatalog;
+    result = discoverRate(rateCatalog, heroesCatalog, query);
+  } catch (error) {
+    result = {
+      status: 'invalid' as const,
+      match: false,
+      reason: error instanceof Error ? error.message : 'invalid rate catalog',
+      query,
+      candidates: [],
+    };
   }
 
+  if (!jsonOnly) {
+    heading(`Rate discovery: ${requiredServiceKey}`);
+    kv('status', result.status);
+    kv('reason', result.reason);
+    kv('candidates', result.candidates.length);
+    if (result.rate) {
+      kv('card', result.rate.cardId);
+      for (const charge of result.rate.rule.charges) {
+        const expression = charge.amount ?? `${charge.tiers?.length ?? 0} tiers`;
+        kv(charge.chargeKey, `${expression} ${charge.currency} / ${charge.basis}`);
+      }
+    }
+  }
   console.log(JSON.stringify(result, null, 2));
-  process.exit(m.best ? 0 : 3);
+  process.exit(result.status === 'matched' ? 0 : result.status === 'none' ? 3 : 4);
 });

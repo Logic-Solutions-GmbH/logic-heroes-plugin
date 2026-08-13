@@ -1,139 +1,136 @@
-/**
- * ingest-rates — normalize deposited rate sheets into the canonical rate-book.
- *
- * A provider peer drops its price lists into `self/rate-book/inbox/`; this reads
- * each CSV, maps arbitrary column names to the canonical schema (lane, equipment,
- * price, validity, …), stamps provenance (source file + ref + timestamp), appends
- * the rows to `self/rate-book/index/rate-book.csv`, and archives the original to
- * `self/rate-book/processed/`. Parsing happens ONCE here so retrieval never
- * re-opens the source — and nothing large ever lands in the agent's context.
- *
- * Only CSV is handled in this cut; xlsx / PDF / email are reported and left in
- * place for a later ingestion adapter.
- *
- * Usage:
- *   npx tsx ingest-rates.ts [<inbox-dir>] [--index <path>] [--processed <dir>] \
- *       [--source-ref <ref>] [--dry-run]
- *
- * Example:
- *   npx tsx ingest-rates.ts                 # uses self/rate-book/* defaults
- */
+/** Import stable CSV adapter rows into the versioned Heroes-shaped rate catalog. */
 import {
-  run,
-  parseArgs,
-  flagString,
-  csvToObjects,
-  normalizeRateRecord,
-  objectsToCsv,
-  RATE_COLUMNS,
-  heading,
-  kv,
-  type RateRow,
-} from './lib';
-import {
-  existsSync,
-  readdirSync,
-  statSync,
-  readFileSync,
-  writeFileSync,
-  appendFileSync,
-  mkdirSync,
-  renameSync,
+  existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync,
 } from 'node:fs';
-import { join, extname, basename, dirname } from 'node:path';
+import { basename, dirname, extname, join } from 'node:path';
+import { flagString, heading, kv, parseArgs, run } from './lib';
+import {
+  approveRateCard, importRateCsv, validateRateCatalog, type HeroesRateCatalog, type RateCatalog,
+} from './rate-contract';
 
 run(async () => {
   const { positional, flags } = parseArgs(process.argv.slice(2));
   const inbox = positional[0] ?? flagString(flags, 'inbox') ?? 'self/rate-book/inbox';
-  const indexPath = flagString(flags, 'index') ?? 'self/rate-book/index/rate-book.csv';
+  const indexPath = flagString(flags, 'index') ?? 'self/rate-book/index/rate-catalog.json';
+  const catalogPath = flagString(flags, 'catalog') ?? 'self/rate-book/index/heroes-catalog.json';
   const processedDir = flagString(flags, 'processed') ?? 'self/rate-book/processed';
-  const sourceRefFlag = flagString(flags, 'source-ref');
+  const approveBy = flagString(flags, 'approve-by');
   const dryRun = flags['dry-run'] === true;
+  const transactionPath = `${indexPath}.transaction.json`;
+  const nextIndex = `${indexPath}.next`;
 
-  if (!existsSync(inbox)) {
-    throw new Error(`Inbox not found: ${inbox}. Create it and drop rate sheets in, or pass a path.`);
+  if (dryRun && (existsSync(transactionPath) || existsSync(nextIndex))) {
+    throw new Error('A pending import transaction requires a normal ingest run for recovery');
   }
-  const files = readdirSync(inbox).filter(
-    (f) => !f.startsWith('.') && statSync(join(inbox, f)).isFile(),
+  if (existsSync(nextIndex) && !existsSync(transactionPath)) unlinkSync(nextIndex);
+  if (existsSync(transactionPath)) {
+    const transaction = JSON.parse(readFileSync(transactionPath, 'utf8')) as {
+      inbox: string; processedDir: string; files: string[]; phase?: 'preparing' | 'staged' | 'committed';
+    };
+    if (transaction.phase === 'preparing') {
+      if (existsSync(nextIndex)) unlinkSync(nextIndex);
+      unlinkSync(transactionPath);
+    } else if (existsSync(nextIndex)) {
+      for (const file of transaction.files) {
+        const archived = join(transaction.processedDir, file);
+        const source = join(transaction.inbox, file);
+        const sourceExists = existsSync(source);
+        const archiveExists = existsSync(archived);
+        if (sourceExists === archiveExists) {
+          throw new Error(`Cannot recover ${file}: expected exactly one source or archived copy`);
+        }
+        if (archiveExists) renameSync(archived, source);
+      }
+      unlinkSync(nextIndex);
+    } else {
+      for (const file of transaction.files) {
+        const source = join(transaction.inbox, file);
+        const archived = join(transaction.processedDir, file);
+        const sourceExists = existsSync(source);
+        const archiveExists = existsSync(archived);
+        if (sourceExists === archiveExists) {
+          throw new Error(`Cannot recover ${file}: expected exactly one source or archived copy`);
+        }
+        if (sourceExists) renameSync(source, archived);
+      }
+    }
+    if (existsSync(transactionPath)) unlinkSync(transactionPath);
+  }
+
+  if (!existsSync(inbox)) throw new Error(`Inbox not found: ${inbox}`);
+  if (!existsSync(catalogPath)) {
+    throw new Error(`Heroes catalog not found: ${catalogPath}. Run sync-rate-catalog.ts first.`);
+  }
+  const heroesCatalog = JSON.parse(readFileSync(catalogPath, 'utf8')) as HeroesRateCatalog;
+  const files = readdirSync(inbox).filter((file) =>
+    !file.startsWith('.') && statSync(join(inbox, file)).isFile() && extname(file).toLowerCase() === '.csv',
   );
   if (files.length === 0) {
     heading('Nothing to ingest');
     kv('inbox', inbox);
-    console.log('  (drop a .csv rate sheet in the inbox first)');
     return;
   }
 
-  const ingestedAt = new Date().toISOString();
-  const allNew: RateRow[] = [];
-  const report: { file: string; rows: number; skipped: number; status: string; handled: boolean }[] = [];
-
-  for (const file of files) {
-    const ext = extname(file).slice(1).toLowerCase();
-    const path = join(inbox, file);
-    const sizeMB = statSync(path).size / (1024 * 1024);
-    if (ext !== 'csv') {
-      report.push({
-        file,
-        rows: 0,
-        skipped: 0,
-        handled: false,
-        status: `skipped (only CSV in this cut; ${ext || 'no-ext'} not yet supported)`,
-      });
-      continue;
+  const imported: RateCatalog[] = files.map((file) =>
+    importRateCsv(readFileSync(join(inbox, file), 'utf8'), basename(file), heroesCatalog),
+  );
+  if (approveBy) {
+    const approvedAt = new Date().toISOString();
+    for (const batch of imported) for (const card of batch.rateCards) {
+      if (card.approval.status !== 'draft') throw new Error(`Card ${card.id} is already approved`);
+      approveRateCard(card, approveBy, approvedAt);
     }
-    if (sizeMB > 25) {
-      heading(`⚠ ${file} is ${sizeMB.toFixed(1)}MB — parsing may be slow; consider splitting the sheet`);
-    }
-    const objs = csvToObjects(readFileSync(path, 'utf8'));
-    const sourceRef = sourceRefFlag ?? basename(file, extname(file));
-    let ok = 0;
-    let skip = 0;
-    for (const o of objs) {
-      const row = normalizeRateRecord(o, { sourceFile: file, sourceRef, ingestedAt });
-      if (row) {
-        allNew.push(row);
-        ok++;
-      } else skip++;
-    }
-    report.push({
-      file,
-      rows: ok,
-      skipped: skip,
-      handled: true,
-      status: ok ? 'ingested' : 'no lane rows found (need origin + dest columns)',
-    });
   }
-
-  heading('Ingestion report');
-  for (const r of report) {
-    kv(r.file, `${r.rows} rows${r.skipped ? `, ${r.skipped} skipped` : ''} — ${r.status}`);
+  const existing: RateCatalog = existsSync(indexPath)
+    ? JSON.parse(readFileSync(indexPath, 'utf8'))
+    : { schemaVersion: '1.0', rateCards: [] };
+  if (existing.schemaVersion !== '1.0') throw new Error(`Unsupported rate catalog version: ${existing.schemaVersion}`);
+  const ids = new Set(existing.rateCards.map((card) => card.id));
+  for (const batch of imported) {
+    for (const card of batch.rateCards) {
+      if (ids.has(card.id)) throw new Error(`Duplicate rate card id: ${card.id}`);
+      ids.add(card.id);
+      existing.rateCards.push(card);
+    }
   }
+  existing.rateCards.sort((a, b) => a.id.localeCompare(b.id));
+  const issues = validateRateCatalog(existing, heroesCatalog);
+  if (issues.length) throw new Error(issues.join('; '));
 
+  heading('Rate import');
+  kv('files', files.length);
+  kv('cards', imported.reduce((sum, batch) => sum + batch.rateCards.length, 0));
+  kv('catalog hash', heroesCatalog.responseHash);
   if (dryRun) {
-    heading('Dry run — index not written, files left in inbox');
-    kv('would add', `${allNew.length} rows`);
+    kv('status', 'valid; no files changed');
     return;
   }
 
-  if (allNew.length > 0) {
-    mkdirSync(dirname(indexPath), { recursive: true });
-    const csv = objectsToCsv(allNew as unknown as Record<string, unknown>[], RATE_COLUMNS as string[]);
-    if (!existsSync(indexPath)) {
-      writeFileSync(indexPath, csv);
-    } else {
-      // Append data rows only (drop the header line).
-      appendFileSync(indexPath, csv.split('\n').slice(1).join('\n'));
-    }
-  }
-
-  // Archive the originals we actually parsed; leave unsupported files in the inbox.
+  mkdirSync(dirname(indexPath), { recursive: true });
   mkdirSync(processedDir, { recursive: true });
-  for (const r of report) {
-    if (r.handled) renameSync(join(inbox, r.file), join(processedDir, r.file));
+  for (const file of files) {
+    const destination = join(processedDir, file);
+    if (existsSync(destination)) throw new Error(`Processed file already exists: ${destination}`);
   }
-
-  heading('Done');
+  writeFileSync(transactionPath, `${JSON.stringify({ inbox, processedDir, files, phase: 'preparing' }, null, 2)}\n`, { mode: 0o600 });
+  writeFileSync(nextIndex, `${JSON.stringify(existing, null, 2)}\n`, { mode: 0o600 });
+  writeFileSync(transactionPath, `${JSON.stringify({ inbox, processedDir, files, phase: 'staged' }, null, 2)}\n`, { mode: 0o600 });
+  const archived: string[] = [];
+  try {
+    renameSync(nextIndex, indexPath);
+    writeFileSync(transactionPath, `${JSON.stringify({ inbox, processedDir, files, phase: 'committed' }, null, 2)}\n`, { mode: 0o600 });
+    for (const file of files) {
+      renameSync(join(inbox, file), join(processedDir, file));
+      archived.push(file);
+    }
+    unlinkSync(transactionPath);
+  } catch (error) {
+    if (existsSync(nextIndex)) {
+      for (const file of archived.reverse()) renameSync(join(processedDir, file), join(inbox, file));
+      unlinkSync(nextIndex);
+      if (existsSync(transactionPath)) unlinkSync(transactionPath);
+    }
+    throw error;
+  }
   kv('index', indexPath);
-  kv('rows added', allNew.length);
-  kv('processed →', processedDir);
 });
