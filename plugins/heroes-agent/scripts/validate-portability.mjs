@@ -139,14 +139,29 @@ for (const file of files) {
 
 const publicRepository = 'https://github.com/Logic-Solutions-GmbH/logic-heroes-plugin';
 const publisherName = 'Logic Solutions GmbH';
+const releaseVersion = '1.0.0';
 for (const manifest of ['.codex-plugin/plugin.json', '.claude-plugin/plugin.json', '.cursor-plugin/plugin.json']) {
   const path = join(pluginRoot, manifest);
   const json = JSON.parse(readFileSync(path, 'utf8'));
   if (json.name !== 'heroes-agent') errors.push(`wrong manifest name: ${manifest}`);
+  if (json.version !== releaseVersion) errors.push(`wrong release version: ${manifest}`);
   if (json.author?.name !== publisherName) errors.push(`wrong publisher name: ${manifest}`);
   if (json.homepage !== publicRepository) errors.push(`wrong homepage: ${manifest}`);
   if (json.repository !== publicRepository) errors.push(`wrong repository: ${manifest}`);
   if (json.license !== 'Apache-2.0') errors.push(`wrong license: ${manifest}`);
+}
+
+const toolsPackage = JSON.parse(readFileSync(
+  join(pluginRoot, 'skills', 'heroes-agent', 'scripts', 'heroes-tools', 'package.json'),
+  'utf8',
+));
+const toolsLock = JSON.parse(readFileSync(
+  join(pluginRoot, 'skills', 'heroes-agent', 'scripts', 'heroes-tools', 'package-lock.json'),
+  'utf8',
+));
+if (toolsPackage.version !== releaseVersion) errors.push('wrong tools package release version');
+if (toolsLock.version !== releaseVersion || toolsLock.packages?.['']?.version !== releaseVersion) {
+  errors.push('wrong tools lock release version');
 }
 
 const catalogs = [
@@ -189,6 +204,9 @@ for (const catalog of catalogs) {
     continue;
   }
   const entry = entries[0];
+  if (catalog.file === '.claude-plugin/marketplace.json' && entry.version !== releaseVersion) {
+    errors.push('wrong Claude catalog release version');
+  }
   if (catalog.file === '.agents/plugins/marketplace.json') {
     if (entry.source?.source !== 'local') errors.push('wrong Codex source type');
     if (entry.policy?.installation !== 'AVAILABLE') errors.push('wrong Codex installation policy');

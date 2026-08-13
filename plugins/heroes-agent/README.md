@@ -112,7 +112,7 @@ claude plugin details heroes-agent@logic-heroes
 ```
 
 The marketplace list must show `logic-heroes`. The plugin list must show
-`heroes-agent@logic-heroes` version `0.1.0` as installed and enabled. Plugin details must show
+`heroes-agent@logic-heroes` version `1.0.0` as installed and enabled. Plugin details must show
 one skill and zero agents, hooks, MCP servers, and LSP servers.
 
 Start a new session and invoke `/heroes-agent:heroes-agent` to verify discovery. A disposable
@@ -300,10 +300,11 @@ Authenticated Heroes reads require a disposable tenant, its matching `API_KEY`, 
 - [x] Test discovery on all three platforms. See `docs/release-evidence/slice-7-codex-smoke.md`, `docs/release-evidence/slice-8-claude-smoke.md`, and `docs/release-evidence/slice-9-cursor-smoke.md`.
 - [x] Test HANDSHAKE against disposable Heroes tenants without exposing credentials. See `docs/release-evidence/slice-10-handshake.md`.
 - [x] Test RFQ against disposable Heroes tenants without exposing credentials. See `docs/release-evidence/slice-11-rfq.md`.
+- [x] Test the Heroes-shaped local rate contract and both existing tenant credentials. See `docs/release-evidence/slice-12-rate-contract.md`.
 - [x] Confirm the archive contains no `.env`, secrets, signed download URLs, `.DS_Store`, broken symlinks, or machine-local paths. See the Slice 6 evidence.
 - [x] Repeat the secret scan against the actual Git tracked-file set. The final Slice 6 gate scanned 54 tracked files.
 - [x] Verify watcher step-change and attachment-only change behavior against the service API. See `docs/release-evidence/slice-10-handshake.md`.
-- [ ] Confirm marketplace ownership and public submission requirements for each platform.
+- [x] Confirm marketplace ownership and public submission requirements for each platform. Publisher account setup and marketplace acceptance remain post-v1 work.
 - [x] Review sample rate data before publication. The owner approved fictitious carrier identifiers and round example values in Slice 6.
 
 The repository is licensed under Apache-2.0; see root `LICENSE` and `NOTICE`.
