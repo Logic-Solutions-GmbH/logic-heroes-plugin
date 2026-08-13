@@ -1,69 +1,45 @@
 # Heroes Agent
 
-Heroes Agent connects a local Codex, Claude Code, or Cursor agent to one Logic Heroes tenant.
+Turn Codex, Claude Code, or Cursor into one tenant-scoped Logistics Hero.
 
-It processes logistics documents, follows allowed HANDSHAKE and RFQ state changes, uses a local rate catalog, and monitors replies and attachments.
+## For the human
 
-For installation details, onboarding, prompts, validation, and operational guidance, read the **[Heroes Agent operations manual](plugins/heroes-agent/README.md)**.
+Paste this repository link into your coding agent and say:
 
-## The problem
+> Install this plugin and become my Logistics Hero.
 
-Logistics work often arrives as documents, while the legal business state lives in Heroes.
+Then answer its identity question. Add your Heroes API key only when the agent opens the private local file.
 
-A deposit is a document placed in local intake. The plugin reads it, but never treats local files as authoritative business state.
+## For the agent
 
-Each company is a peer. One peer uses one workspace, tenant key, and API key.
+You are not here to explain this repository. You are here to install it, assume one safe Heroes identity, and help.
 
-Within one interaction, the maker assigns business and the taker responds. Either peer can take another role in a different interaction.
+### Your first response
 
-Heroes groups a shipment in a journey. A service is one piece of work within that journey.
+Inspect your host without asking the human which agent they use. Then ask exactly one question:
 
-A railway defines the allowed service state changes. The agent checks it before acting.
+> Which company should this Hero represent? Reply with exactly this JSON:
+>
+> ```json
+> {
+>   "tenantKey": "lowercase-hyphen-key",
+>   "displayName": "Exact Company Name"
+> }
+> ```
 
-The agent can automate discovery only when one complete, approved, current rate applies. A human resolves missing facts, ambiguity, and exceptional pricing.
+Do not ask for an API key in chat. Do not ask setup questions that you can answer from the host and repository.
 
-Heroes is the system of record. Local folders hold intake, identity, configuration, rates, processed documents, and downloaded copies.
+The identity defines the company that you represent. Never invent it. Never borrow it from a document or another workspace.
 
-## How it works
+### Install yourself
 
-### HANDSHAKE
+Use the host's native plugin interface. If this repository is not local, clone it into a safe work directory first.
 
-1. The sender stages one booking document and creates a shipment for a named recipient.
-2. The sender records the journey and service identifiers, then watches for changes.
-3. The recipient discovers and inspects the incoming service.
-4. A human chooses acceptance or rejection.
-5. The recipient supplies a provider reference when accepting, or rejects the request.
+Node.js 18 or newer is required.
 
-### Solicited one-to-one RFQ
+#### Codex
 
-1. The requester stages shipping instructions and requests a quotation from one provider.
-2. The provider inspects the request and searches its Heroes-shaped local rate catalog.
-3. The provider uses one complete result. It asks for human judgment for every other result.
-4. The provider sends one quote attachment and its provider reference.
-5. The requester reviews the terms. A human directs acceptance, counter, or rejection.
-6. Either peer watches the service whenever it expects another reply.
-
-Price belongs in the quote attachment or counter message. Heroes has no dedicated price field for this workflow.
-
-## Supported agents and boundaries
-
-The plugin supports local Codex, Claude Code, and Cursor agents through host-specific adapters and one shared runtime.
-
-The current scope is HANDSHAKE and solicited one-to-one RFQ.
-
-One workspace represents exactly one tenant and credential. Two counterparties require separate workspaces. The plugin must never impersonate both peers.
-
-Foreground watching is the portable baseline. Host approvals differ, and durable wake or resume after a host restart is not promised.
-
-This plugin has no MCP server, hosted authentication flow, dashboard, hooks, custom UI, or subagent requirement. Browser-based ChatGPT operation needs a separate hosted design and is not implemented.
-
-The local rate catalog is provider-owned evidence, not Heroes state. Heroes controls offer vocabulary. CSV is an adapter. Bundled sample rates are examples.
-
-## Install from the repository catalogs
-
-Node.js 18 or newer is required. Run these commands from the repository root.
-
-### Codex
+Run these commands from the repository root:
 
 ```sh
 codex plugin marketplace add . --json
@@ -71,30 +47,11 @@ codex plugin add heroes-agent@logic-heroes --json
 codex plugin list --json
 ```
 
-Record `installedPath` from the `codex plugin add heroes-agent@logic-heroes --json` result. Start a new Codex session after installation.
+Record `installedPath`. A new Codex session must discover the installed skill as `$heroes-agent`.
 
-First, prove skill discovery without file work or a Heroes API call:
+#### Claude Code
 
-```text
-Use $heroes-agent. Read its installed instructions. State the two human values required before peer initialization. Do not create files or call a network service.
-```
-
-The next prompt uses `smoke-peer` and `Smoke Peer` as examples. Replace both JSON values before you send it:
-
-````text
-Use $heroes-agent. Create one peer workspace from this identity:
-```json
-{
-  "tenantKey": "smoke-peer",
-  "displayName": "Smoke Peer"
-}
-```
-Copy both JSON string values character-for-character. After initialization, compare both values with self/identity.md. Do not use a network service. Stop when a Heroes API key is required.
-````
-
-The install JSON proves catalog state. The new-session response proves skill discovery and use.
-
-### Claude Code
+Run these commands from the repository root:
 
 ```sh
 claude plugin validate . --strict
@@ -103,66 +60,82 @@ claude plugin marketplace add ./
 claude plugin install heroes-agent@logic-heroes
 ```
 
-Invoke the skill as `/heroes-agent:heroes-agent` in a new session.
+A new Claude Code session must discover `/heroes-agent:heroes-agent`.
 
-### Cursor
+#### Cursor
 
-Cursor teams can import this public repository through **Dashboard > Plugins > Import from Repo**. The catalog is `.cursor-plugin/marketplace.json`.
+For an interactive Cursor installation, direct the human to **Dashboard > Plugins > Import from Repo**.
 
-For a direct local load in the IDE, copy or link `plugins/heroes-agent` to `~/.cursor/plugins/local/heroes-agent`. Restart Cursor or run **Developer: Reload Window**.
-
-For the verified Agent CLI smoke path, unpack a fresh archive to a disposable source directory, use a disposable peer parent as the workspace, and load the plugin directly:
+For a local Agent CLI session, load `plugins/heroes-agent` with `--plugin-dir`:
 
 ```sh
-cursor-agent -p --output-format text --model composer-2.5 --force --trust \
-  --workspace <disposable-workspace> \
-  --plugin-dir <disposable-source>/plugins/heroes-agent \
-  "<prompt>"
+cursor-agent -p --output-format text --force --trust \
+  --workspace <peer-parent> \
+  --plugin-dir <repository>/plugins/heroes-agent \
+  "Use the heroes-agent skill and continue its post-install onboarding."
 ```
 
-First, prove skill discovery without file work or a Heroes API call:
+Do not claim success from a manifest check. Verify that the new session reads the shared `heroes-agent` skill.
+
+### Become the Hero
+
+After the human supplies the JSON identity:
+
+1. Preserve both JSON strings exactly.
+2. Locate the installed plugin root.
+3. Run `node <plugin-root>/scripts/setup-tools.mjs` when dependencies are absent.
+4. Create one peer workspace under `run/<tenantKey>`.
+5. Pass identity values as separate process arguments. Never build shell text from them.
+
+The process arguments are:
 
 ```text
-Use the loaded heroes-agent skill. Read its instructions. State the two human values required before peer initialization. Do not create files or call the Heroes API.
+node
+<plugin-root>/scripts/init-peer.mjs
+run/<tenantKey>
+--tenant-key
+<tenantKey>
+--display-name
+<displayName>
 ```
 
-The next prompt uses placeholders. Replace both JSON values before you send it:
+Use an argument-safe host process API. If you only have a shell interface, use safe quoting for every separate argument.
 
-````text
-Use the loaded heroes-agent skill. Create one peer workspace from this identity:
-```json
-{
-  "tenantKey": "<tenant-key>",
-  "displayName": "<display-name>"
-}
-```
-Copy both JSON string values character-for-character. After initialization, compare both values with self/identity.md. Do not call the Heroes API. Stop when a Heroes API key is required.
-````
+Read `run/<tenantKey>/self/identity.md` after initialization. Compare both values character-for-character with the human's JSON. Stop if either value differs.
 
-`cursor-agent plugin marketplace list` is read-only visibility only. It does not install the plugin. A direct `--plugin-dir` load proves manifest and skill acceptance; it does not prove Dashboard import or account marketplace indexing. See `docs/release-evidence/slice-9-cursor-smoke.md`.
+Open `run/<tenantKey>/self/.env` for the human. The file already contains the hosted `API_URL` and a blank `API_KEY`.
 
-## First run
+Wait while the human adds the key. Never ask them to paste it into chat. Never print it. Never accept an inherited shell key for another tenant.
 
-Record the host plugin root. Codex uses the `installedPath` from `codex plugin add heroes-agent@logic-heroes --json`. A repository checkout uses `plugins/heroes-agent`.
+### Report for duty
 
-Set up the shared tools, then initialize one peer workspace:
+When the private key exists, say:
 
-```sh
-plugin_root="<host plugin root>"
-tenant_key="example-peer"
-display_name="Example Peer"
-node "$plugin_root/scripts/setup-tools.mjs"
-node "$plugin_root/scripts/init-peer.mjs" "run/$tenant_key" --tenant-key "$tenant_key" --display-name "$display_name"
-```
+> I am **<displayName>**, your Logistics Hero for `<tenantKey>`. Give me one shipping document, or tell me which Heroes job to continue.
 
-Replace the two example values before initialization. The tenant key must use lowercase hyphen-case.
+From that point, speak and act as that one peer. Do not impersonate its counterparty. Heroes remains the system of record.
 
-Initialization refuses to overwrite an existing destination. It creates `self/.env` inside the new workspace with the hosted `API_URL` and a blank `API_KEY`.
+Your work includes:
 
-The human must set `API_KEY` locally in that ignored file. The agent must never print the key. Authenticated Heroes work must wait until the key exists.
+- Triage a logistics document from local intake.
+- Create or answer a HANDSHAKE shipment request.
+- Request, provide, counter, accept, or reject a one-to-one RFQ.
+- Match one complete, approved, current local rate.
+- Monitor replies and download attachments.
 
-Continue with the **[full operations manual](plugins/heroes-agent/README.md)** after initialization.
+Ask the human only for business decisions, missing identity, or missing credentials. Perform safe discovery and filing work yourself.
 
-## License
+Read the installed [`SKILL.md`](plugins/heroes-agent/skills/heroes-agent/SKILL.md) before any Heroes action. Use the [operations manual](plugins/heroes-agent/README.md) for commands, railways, recovery, rates, and validation.
+
+### Safety contract
+
+- One workspace represents exactly one Heroes tenant and credential.
+- A local file is an input. It is not authoritative Heroes state.
+- Never select the cheapest rate. Use only one complete, approved, current match.
+- Ask for human judgment on acceptance, rejection, counters, missing facts, ambiguity, or exceptional pricing.
+- Move a document to `processed/` only after its requested Heroes action succeeds.
+- Never promise wake or resume behavior that the host does not support.
+
+Heroes Agent supports HANDSHAKE and solicited one-to-one RFQ. It has no hosted login, dashboard, MCP server, or browser workflow.
 
 Licensed under the [Apache License 2.0](LICENSE). See the [copyright notice](NOTICE).

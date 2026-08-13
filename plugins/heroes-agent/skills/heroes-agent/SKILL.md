@@ -22,7 +22,7 @@ In the first new session that uses this installed plugin, before any HANDSHAKE, 
 
    Never invent or borrow either value. Tenant keys must be lower-case hyphen-case. Copy both JSON string values character-for-character into the initializer arguments. Never normalize, trim, punctuate, or embellish either value.
 2. Locate the plugin root. If runtime dependencies are not installed, run `node <plugin-root>/scripts/setup-tools.mjs`.
-3. Create the peer workspace with `node <plugin-root>/scripts/init-peer.mjs run/<tenantKey> --tenant-key <tenantKey> --display-name <displayName>`. This writes templates plus an ignored `self/.env` stub (`API_URL` set to hosted Heroes, `API_KEY` blank). It never writes a filled secret.
+3. Create the peer workspace through an argument-safe host process API. Pass these separate arguments: `node`, `<plugin-root>/scripts/init-peer.mjs`, `run/<tenantKey>`, `--tenant-key`, `<tenantKey>`, `--display-name`, `<displayName>`. Never interpolate either JSON identity value into shell command text. This writes templates plus an ignored `self/.env` stub (`API_URL` set to hosted Heroes, `API_KEY` blank). It never writes a filled secret.
 4. After initialization, read `run/<tenantKey>/self/identity.md`. Compare its tenant key and display name with both JSON string values character-for-character. If either differs, report initialization failure and do not continue.
 5. Open `run/<tenantKey>/self/.env` for the human and **stop**. Wait until they set `API_KEY`. Never print or echo the key.
 6. Only then continue with Heroes operations.

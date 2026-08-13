@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { collectScannableTrackedPaths } from './portability-paths.mjs';
 
 const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = resolve(pluginRoot, '..', '..');
@@ -51,13 +52,8 @@ if (hasGitRepository) {
   const stagedEntries = execFileSync('git', ['-C', repoRoot, 'ls-files', '--stage', '-z'], { encoding: 'utf8' })
     .split('\0')
     .filter(Boolean);
-  for (const entry of stagedEntries) {
-    const tab = entry.indexOf('\t');
-    const metadata = tab === -1 ? entry : entry.slice(0, tab);
-    const path = tab === -1 ? entry : entry.slice(tab + 1);
-    if (metadata.startsWith('120000 ')) errors.push(`tracked-symlink: ${path}`);
-  }
-  for (const path of trackedPaths) {
+  const scannableTrackedPaths = collectScannableTrackedPaths(stagedEntries, trackedPaths, errors);
+  for (const path of scannableTrackedPaths) {
     if (isAbsolute(path) || path.split(/[\\/]/).includes('..')) {
       errors.push(`unsafe-tracked-path: ${path}`);
       continue;

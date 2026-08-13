@@ -36,7 +36,7 @@ run(async () => {
         const source = join(transaction.inbox, file);
         const sourceExists = existsSync(source);
         const archiveExists = existsSync(archived);
-        if (sourceExists === archiveExists) {
+        if (sourceExists && archiveExists) {
           throw new Error(`Cannot recover ${file}: expected exactly one source or archived copy`);
         }
         if (archiveExists) renameSync(archived, source);
@@ -48,7 +48,7 @@ run(async () => {
         const archived = join(transaction.processedDir, file);
         const sourceExists = existsSync(source);
         const archiveExists = existsSync(archived);
-        if (sourceExists === archiveExists) {
+        if (sourceExists && archiveExists) {
           throw new Error(`Cannot recover ${file}: expected exactly one source or archived copy`);
         }
         if (sourceExists) renameSync(source, archived);
@@ -96,11 +96,15 @@ run(async () => {
   existing.rateCards.sort((a, b) => a.id.localeCompare(b.id));
   const issues = validateRateCatalog(existing, heroesCatalog);
   if (issues.length) throw new Error(issues.join('; '));
+  const staleCards = existing.rateCards.filter((card) =>
+    card.catalogReference.responseHash !== heroesCatalog.responseHash,
+  );
 
   heading('Rate import');
   kv('files', files.length);
   kv('cards', imported.reduce((sum, batch) => sum + batch.rateCards.length, 0));
   kv('catalog hash', heroesCatalog.responseHash);
+  if (staleCards.length) kv('stale cards', `${staleCards.length}; re-approve before use`);
   if (dryRun) {
     kv('status', 'valid; no files changed');
     return;

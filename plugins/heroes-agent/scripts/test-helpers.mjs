@@ -66,3 +66,5 @@ try {
 } finally {
   rmSync(sandbox, { recursive: true, force: true });
 }
+
+await import('./test-portability.mjs');

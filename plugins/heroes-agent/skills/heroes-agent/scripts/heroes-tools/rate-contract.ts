@@ -311,9 +311,6 @@ export function validateRateCatalog(
     else if (cardIds.has(card.id)) issues.push(`duplicate card id ${card.id}`);
     cardIds.add(card.id);
     if (card.journeyType !== 'OFFER') issues.push(`${cardAt}: journeyType must be OFFER`);
-    if (card.catalogReference?.responseHash !== heroesCatalog.responseHash) {
-      issues.push(`${cardAt}: Heroes catalog reference is stale`);
-    }
     if (!isIsoDateTime(card.catalogReference?.fetchedAt)) {
       issues.push(`${cardAt}: catalog fetchedAt must be an ISO timestamp`);
     }
