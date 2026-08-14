@@ -1,6 +1,3 @@
-origin,dest,equipment,carrier,price,currency,validFrom,validTo,surcharges
-NLRTM,USNYC,40HC,MAEU,8000,USD,2026-07-01,2026-09-30,BAF included; THC excluded
-NLRTM,USNYC,20GP,MAEU,5200,USD,2026-07-01,2026-09-30,BAF included
-CNSHA,NLRTM,40HC,HLCU,2450,USD,2026-06-15,2026-08-31,Peak-season surcharge USD 300
-CNSHA,USNYC,40HC,MAEU,3900,USD,2026-07-01,2026-08-15,
-DEHAM,USNYC,40HC,HLCU,4100,USD,2026-07-01,2026-12-31,All-in
+cardId,ruleId,serviceKey,origin,destination,locationCode,locationRole,assetType,assetSubtype,validFrom,validTo,chargeKey,amount,currency,basis,sourceRef,approvalStatus,approvedBy,approvedAt,condition
+example-fcl-1,example-fcl-rule-1,fcl_freight_forwarding,NLRTM,USNYC,,,container,40HC,2026-08-01,2026-12-31,ocean-freight,9000,USD,container,EXAMPLE-FCL-1,draft,,,Example only; space is not guaranteed
+example-fcl-1,example-fcl-rule-1,fcl_freight_forwarding,NLRTM,USNYC,,,container,40HC,2026-08-01,2026-12-31,documentation,50,USD,document,EXAMPLE-FCL-1,draft,,,Example only; space is not guaranteed

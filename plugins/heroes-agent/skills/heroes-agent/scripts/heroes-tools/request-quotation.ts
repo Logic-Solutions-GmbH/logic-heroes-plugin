@@ -7,11 +7,12 @@
  *
  * Usage:
  *   npx tsx request-quotation.ts <payload-folder> --target <tenantKey> \
- *       [--service-key <key>] [--name <eventName>] [--lo-code <UNLOCODE>]
+ *       [--journey-id <id>] [--service-key <key>] [--name <eventName>] \
+ *       [--lo-code <UNLOCODE>]
  *
  * Example:
  *   npx tsx request-quotation.ts ./intake --target schryver-mx \
- *       --service-key oceanfreight --name "RFQ - Ocean Freight TSN-IOA"
+ *       --service-key ltl_pickup_origin --name "RFQ - Origin Pickup TSN-IOA"
  */
 import {
   run,
@@ -29,35 +30,46 @@ run(async (config) => {
   const { positional, flags } = parseArgs(process.argv.slice(2));
   const folder = positional[0];
   const target = flagString(flags, 'target');
-  const serviceKey = flagString(flags, 'service-key') ?? 'oceanfreight';
+  const existingJourneyId = flagString(flags, 'journey-id');
+  const serviceKey = flagString(flags, 'service-key') ?? 'ltl_pickup_origin';
   const name = flagString(flags, 'name') ?? 'Quotation Request';
   const loCode = flagString(flags, 'lo-code');
 
+  if ('journey-id' in flags && !existingJourneyId?.trim()) {
+    throw new Error('--journey-id requires a value');
+  }
   if (!folder || !target) {
     throw new Error(
       'Usage: npx tsx request-quotation.ts <payload-folder> --target <tenantKey> ' +
-        '[--service-key <key>] [--name <eventName>] [--lo-code <UNLOCODE>]',
+        '[--journey-id <id>] [--service-key <key>] [--name <eventName>] ' +
+        '[--lo-code <UNLOCODE>]',
     );
   }
 
   const apiKey = requireApiKey(config);
   const payload = readPayloadFolder(folder);
 
-  heading('Creating shipment journey');
-  const journey = await api<any>(config, {
-    method: 'POST',
-    path: '/journeys',
-    apiKey,
-    body: { type: 'SHIPMENT' },
-  });
-  kv('journeyId', journey.id);
+  let journeyId = existingJourneyId;
+  if (journeyId) {
+    heading('Using existing shipment journey');
+  } else {
+    heading('Creating shipment journey');
+    const journey = await api<any>(config, {
+      method: 'POST',
+      path: '/journeys',
+      apiKey,
+      body: { type: 'SHIPMENT' },
+    });
+    journeyId = journey.id;
+  }
+  kv('journeyId', journeyId);
 
   heading('Creating service');
   const service = await api<any>(config, {
     method: 'POST',
     path: '/services',
     apiKey,
-    body: { serviceKey, journeyId: journey.id },
+    body: { serviceKey, journeyId },
   });
   kv('serviceId', service.id);
   kv('serviceKey', serviceKey);

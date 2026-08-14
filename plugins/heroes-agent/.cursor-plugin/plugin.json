@@ -1,10 +1,14 @@
 {
   "name": "heroes-agent",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Operate a tenant-scoped Logic Heroes peer for HANDSHAKE and solicited RFQ workflows.",
   "author": {
-    "name": "LogicSolutionsGmbH"
+    "name": "Logic Solutions GmbH"
   },
+  "homepage": "https://github.com/Logic-Solutions-GmbH/logic-heroes-plugin",
+  "repository": "https://github.com/Logic-Solutions-GmbH/logic-heroes-plugin",
+  "license": "Apache-2.0",
   "keywords": ["logistics", "rfq", "handshake", "heroes"],
+  "logo": "assets/logo.png",
   "skills": "./skills/"
 }

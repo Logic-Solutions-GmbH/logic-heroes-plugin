@@ -1,6 +1,6 @@
 {
   "name": "heroes-agent-tools",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -10,7 +10,7 @@
   "scripts": {
     "heroes": "tsx",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test test/lib.test.ts"
+    "test": "node --import tsx --test test/*.test.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
