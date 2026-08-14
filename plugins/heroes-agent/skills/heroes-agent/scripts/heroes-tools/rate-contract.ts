@@ -12,6 +12,7 @@ export interface HeroesRateCatalog {
   assetTypes: { code: string }[];
   assetSubtypes: { assetType: string; subtype: string }[];
   locationRoles: string[];
+  timeframeKinds: string[];
   participantRoles: string[];
   strategies: { strategyKey: string; steps: string[] }[];
 }
@@ -117,6 +118,7 @@ function catalogValues(catalog: HeroesRateCatalog) {
     assetTypes: catalog.assetTypes,
     assetSubtypes: catalog.assetSubtypes,
     locationRoles: catalog.locationRoles,
+    timeframeKinds: catalog.timeframeKinds,
     participantRoles: catalog.participantRoles,
     strategies: catalog.strategies,
   };
@@ -164,27 +166,42 @@ export async function fetchHeroesRateCatalog(
   now = new Date().toISOString(),
 ): Promise<HeroesRateCatalog> {
   const apiRoot = config.apiUrl.endsWith('/api') ? config.apiUrl.slice(0, -4) : config.apiUrl;
-  const [openApiResponse, serviceData, assetTypeData, strategyData] = await Promise.all([
-    fetch(`${apiRoot}/openapi`),
-    api<unknown>(config, {
-      method: 'GET', path: '/catalog/services', apiKey,
-    }),
-    api<{ asset_types?: unknown }>(config, {
-      method: 'GET', path: '/catalog/asset-types', apiKey,
-    }),
-    api<{ templates?: unknown }>(config, {
-      method: 'GET', path: '/strategies/templates', apiKey,
-    }),
-  ]);
+  const [openApiResponse, serviceData, assetTypeData, strategyData, locationRoleData, timeframeKindData] =
+    await Promise.all([
+      fetch(`${apiRoot}/openapi`),
+      api<unknown>(config, {
+        method: 'GET', path: '/catalog/services', apiKey,
+      }),
+      api<{ asset_types?: unknown }>(config, {
+        method: 'GET', path: '/catalog/asset-types', apiKey,
+      }),
+      api<{ templates?: unknown }>(config, {
+        method: 'GET', path: '/strategies/templates', apiKey,
+      }),
+      // Location roles and timeframe kinds are closed Heroes vocabularies with their own
+      // catalog reads. They used to be scraped out of the /openapi document, which only
+      // ever exposed them as a side effect of how /offers/search happened to be published
+      // — one schema change and the rate book silently lost its vocabulary.
+      api<{ location_roles?: unknown }>(config, {
+        method: 'GET', path: '/catalog/location-roles', apiKey,
+      }),
+      api<{ timeframe_kinds?: unknown }>(config, {
+        method: 'GET', path: '/catalog/timeframe-kinds', apiKey,
+      }),
+    ]);
   if (!openApiResponse.ok) throw new Error(`Heroes OpenAPI returned ${openApiResponse.status}.`);
   const openApi = await openApiResponse.json() as Record<string, any>;
   const offerProperties = openApi?.paths?.['/api/offers/search']?.post?.requestBody
     ?.content?.['application/json']?.schema?.properties;
-  const locationRoles = [...(offerProperties?.locodes?.items?.properties?.role?.enum ?? [])]
-    .filter((role): role is string => typeof role === 'string').sort();
+  // Participant roles have no catalog read of their own yet; they remain the one
+  // vocabulary this snapshot still takes from the published spec.
   const participantRoles = [...(offerProperties?.participants?.items?.properties?.role?.enum ?? [])]
     .filter((role): role is string => typeof role === 'string').sort();
   const openApiVersion = text(openApi?.info?.version);
+  const locationRoles = asRecords(locationRoleData?.location_roles)
+    .map((row) => text(row.code)).filter(Boolean).sort();
+  const timeframeKinds = asRecords(timeframeKindData?.timeframe_kinds)
+    .map((row) => text(row.code)).filter(Boolean).sort();
 
   const services = asRecords(serviceData)
     .map((row) => ({ serviceKey: text(row.serviceKey ?? row.key) }))
@@ -196,8 +213,14 @@ export async function fetchHeroesRateCatalog(
     .sort((a, b) => a.code.localeCompare(b.code));
   if (services.length === 0) throw new Error('Heroes returned no provider service keys.');
   if (assetTypes.length === 0) throw new Error('Heroes returned no asset types.');
-  if (!openApiVersion || locationRoles.length === 0 || participantRoles.length === 0) {
+  if (!openApiVersion || participantRoles.length === 0) {
     throw new Error('Heroes OpenAPI did not define required offer vocabulary.');
+  }
+  if (locationRoles.length === 0) {
+    throw new Error('GET /catalog/location-roles returned no location roles.');
+  }
+  if (timeframeKinds.length === 0) {
+    throw new Error('GET /catalog/timeframe-kinds returned no timeframe kinds.');
   }
   const strategies = asRecords(strategyData?.templates).map((row) => ({
     strategyKey: text(row.key),
@@ -219,7 +242,8 @@ export async function fetchHeroesRateCatalog(
   ).sort((a, b) => `${a.assetType}:${a.subtype}`.localeCompare(`${b.assetType}:${b.subtype}`));
 
   const values = {
-    openApiVersion, services, assetTypes, assetSubtypes, locationRoles, participantRoles, strategies,
+    openApiVersion, services, assetTypes, assetSubtypes, locationRoles, timeframeKinds,
+    participantRoles, strategies,
   };
   const catalog = {
     schemaVersion: RATE_CONTRACT_VERSION,

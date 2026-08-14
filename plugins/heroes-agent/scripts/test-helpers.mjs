@@ -32,6 +32,13 @@ try {
   );
   assert.ok(existsSync(join(destination, 'self', '.env.example')));
 
+  for (const railway of ['handshake.md', 'rfq.md', 'offer.md']) {
+    assert.ok(
+      existsSync(join(destination, 'railways', railway)),
+      `init-peer must copy the ${railway} railway into the peer workspace`,
+    );
+  }
+
   const envPath = join(destination, 'self', '.env');
   assert.ok(existsSync(envPath), 'init-peer must create ignored self/.env stub');
   const envText = readFileSync(envPath, 'utf8');

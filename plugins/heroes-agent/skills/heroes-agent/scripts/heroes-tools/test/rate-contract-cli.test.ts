@@ -42,7 +42,12 @@ function runTool(
 
 const catalogVocabulary = {
   openApiVersion: '0.1.test',
-  locationRoles: ['origin', 'destination', 'transshipment', 'depot', 'warehouse'],
+  locationRoles: [
+    'origin', 'destination', 'port_of_loading', 'port_of_discharge', 'transshipment', 'depot', 'warehouse',
+  ],
+  timeframeKinds: [
+    'validity', 'departure_window', 'arrival_deadline', 'cargo_ready', 'customs_clearance_by',
+  ],
   participantRoles: ['assigner', 'assignee', 'observer', 'issuer', 'recipient'],
   strategies: [{ strategyKey: 'OFFER', steps: ['PUBLISHED'] }],
 };
@@ -70,11 +75,25 @@ test('operator snapshots Heroes rate catalogs through the current peer credentia
         info: { version: '0.1.test' },
         paths: { '/api/offers/search': { post: { requestBody: { content: { 'application/json': { schema: {
           properties: {
-            locodes: { items: { properties: { role: { enum: ['origin', 'destination', 'warehouse'] } } } },
+            // Deliberately stale and wrong: the snapshot must take its location roles
+            // from the catalog read, never from this document again.
+            locodes: { items: { properties: { role: { enum: ['scraped-role'] } } } },
             participants: { items: { properties: { role: { enum: ['assigner', 'assignee'] } } } },
           },
         } } } } } } },
       }));
+    } else if (request.url === '/api/catalog/location-roles') {
+      response.end(JSON.stringify({ data: { location_roles: [
+        { code: 'origin', name: 'Origin', description: 'Start of the whole service' },
+        { code: 'port_of_loading', name: 'Port of loading', description: 'Main leg load port' },
+        { code: 'port_of_discharge', name: 'Port of discharge', description: 'Main leg discharge port' },
+        { code: 'destination', name: 'Destination', description: 'End of the whole service' },
+      ] } }));
+    } else if (request.url === '/api/catalog/timeframe-kinds') {
+      response.end(JSON.stringify({ data: { timeframe_kinds: [
+        { code: 'validity', name: 'Validity', description: 'Offer validity window' },
+        { code: 'departure_window', name: 'Departure window', description: 'Planned departure' },
+      ] } }));
     } else if (request.url === '/api/catalog/services') {
       response.end(JSON.stringify({ data: [{ serviceKey: 'fcl_freight_forwarding' }, { serviceKey: 'airfreight' }] }));
     } else if (request.url === '/api/catalog/asset-types') {
@@ -106,6 +125,8 @@ test('operator snapshots Heroes rate catalogs through the current peer credentia
       { url: '/api/catalog/services', apiKey: 'workspace-key' },
       { url: '/api/catalog/asset-types', apiKey: 'workspace-key' },
       { url: '/api/strategies/templates', apiKey: 'workspace-key' },
+      { url: '/api/catalog/location-roles', apiKey: 'workspace-key' },
+      { url: '/api/catalog/timeframe-kinds', apiKey: 'workspace-key' },
       { url: '/api/catalog/asset-subtypes?asset_type=container', apiKey: 'workspace-key' },
     ]);
     const snapshot = JSON.parse(readFileSync(output, 'utf8'));
@@ -117,7 +138,11 @@ test('operator snapshots Heroes rate catalogs through the current peer credentia
     assert.deepEqual(snapshot.assetTypes, [{ code: 'container' }]);
     assert.deepEqual(snapshot.assetSubtypes, [{ assetType: 'container', subtype: '40HC' }]);
     assert.equal(snapshot.openApiVersion, '0.1.test');
-    assert.deepEqual(snapshot.locationRoles, ['destination', 'origin', 'warehouse']);
+    assert.deepEqual(snapshot.locationRoles, [
+      'destination', 'origin', 'port_of_discharge', 'port_of_loading',
+    ]);
+    assert.deepEqual(snapshot.timeframeKinds, ['departure_window', 'validity']);
+    assert.doesNotMatch(readFileSync(output, 'utf8'), /scraped-role/);
     assert.deepEqual(snapshot.participantRoles, ['assignee', 'assigner']);
     assert.deepEqual(snapshot.strategies, [{ strategyKey: 'RFQ', steps: ['QUOTED'] }]);
     assert.match(snapshot.responseHash, /^[a-f0-9]{64}$/);
@@ -479,7 +504,8 @@ test('rate discovery returns invalid exit 4 for malformed canonical JSON', async
       schemaVersion: '1.0', fetchedAt: '2026-08-13T00:00:00Z',
       openApiVersion: '0.1.test', services: [{ serviceKey: 'fcl_freight_forwarding' }],
       assetTypes: [{ code: 'container' }], assetSubtypes: [],
-      locationRoles: ['origin'], participantRoles: ['assigner'], strategies: [],
+      locationRoles: ['origin'], timeframeKinds: ['validity'], participantRoles: ['assigner'],
+      strategies: [],
     });
     const indexPath = join(workspace, 'rate-catalog.json');
     writeFileSync(indexPath, JSON.stringify({ schemaVersion: '1.0' }));
