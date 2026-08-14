@@ -11,6 +11,18 @@ _Avoid_: Account, maker, taker
 **Offer**:
 A Heroes journey that describes provider work through one or more services.
 
+**Held quote**:
+A priced document a counterparty has already issued to this peer. It is composed into an offer; it is never requested, and it is never a local rate import.
+_Avoid_: Incoming RFQ, buy rate row
+
+**Issuer**:
+The party that offers a service. On a held quote, the carrier that quoted this peer.
+_Avoid_: Assignee, provider tenant
+
+**Recipient**:
+The party a service is offered to. On a held quote, this peer.
+_Avoid_: Assigner, customer tenant
+
 **Rate catalog**:
 A provider-owned local collection of approved rate cards. It is not shared Heroes state.
 _Avoid_: Ledger, universal CSV

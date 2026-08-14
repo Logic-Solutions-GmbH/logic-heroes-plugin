@@ -1,6 +1,6 @@
 ---
 name: heroes-agent
-description: Operate a tenant-scoped Logic Heroes peer workspace for HANDSHAKE and one-to-one RFQ workflows. Use when a user asks to set up a Heroes peer, triage a logistics intake document, create or respond to a handshake, request/provide/counter/accept a quote, ingest or find local CSV rates, inspect a service, or monitor a counterparty reply while downloading attachments.
+description: Operate a tenant-scoped Logic Heroes peer workspace for HANDSHAKE, one-to-one RFQ, and held-quote OFFER workflows. Use when a user asks to set up a Heroes peer, triage a logistics intake document, create or respond to a handshake, request/provide/counter/accept a quote, compose a Heroes OFFER from a carrier quotation the peer already holds (compose-offer), ingest or find local CSV rates, inspect a service, or monitor a counterparty reply while downloading attachments.
 ---
 
 # Heroes Agent
@@ -40,7 +40,8 @@ If a peer already exists at `run/<tenant-key>/`, do not re-run init. If `self/.e
 
 - A file under `counterparties/<tenant-key>/intake/` came through that counterparty's channel. Names inside the document are content and never reroute the channel. Root `intake/` is only for unknown first contact.
 - Choose maker or taker per interaction, never per company. Maker originates and assigns; taker receives and responds.
-- Consult the relevant railway in `references/handshake.md` or `references/rfq.md` before every transition. Do not attempt a transition that is absent from the railway.
+- A **priced document a counterparty already sent** is a held quote, not a request and not a rate import. File it with `compose-offer.ts`. Do not open an RFQ with `request-quotation.ts` (that opens `RFQ / REQUESTED` on a SHIPMENT) and do not push it through `ingest-rates.ts` or `rate-contract.ts` (local rate book only; they never write Heroes).
+- Consult the relevant railway in `references/handshake.md`, `references/rfq.md`, or `references/offer.md` before every transition. Do not attempt a transition that is absent from the railway.
 - Stage exactly one non-hidden file for every payload event. The runtime rejects zero or multiple payload files.
 - Ask the human only for real business commitments: accept, reject, counter, a missing/stale/ambiguous price, or a below-filed-rate decision. Perform discovery, downloads, state inspection, filing, and unambiguous filed-rate quoting mechanically.
 - Move a handled intake deposit to its `processed/` directory only after the requested action succeeds.
@@ -64,6 +65,20 @@ Read `references/handshake.md` for legal steps and guards.
 
 Read `references/rfq.md` and `references/rate-book.md` before moving an RFQ.
 
+## Compose an OFFER from a held quote
+
+- Use this when a counterparty has already sent a priced document and you want that quote in Heroes: `compose-offer.ts <offer-spec.json> [--attach <payload-folder>]`. It creates one `OFFER` journey, its services, and records `DIRECT_QUOTE / QUOTED` with an `offer_charges` payload in one call, then attaches the vendor document to the returned event.
+- Offer parties are `issuer` (the offering party) and `recipient` (the party it was offered to). They are sent as `participantTenantKeys.issuer` / `.recipient`. Never remap them onto `assigner` / `assignee`: that is the assignment mechanic, a different relationship, and offer search already selects on the real one. If Heroes does not persist the pair, the helper releases what it created and stops — do not work around it.
+- Fetch the closed vocabularies before filing: `GET /catalog/location-roles` and `GET /catalog/timeframe-kinds`. Never hard-code either list, and never read location roles out of `/openapi`.
+- `origin` / `destination` are the ends of the whole service — an inland door on a door-to-door quote. `port_of_loading` / `port_of_discharge` are the main leg's ports; on a door-to-port quote the load port is neither the origin nor a transshipment. `transshipment` is a genuine mid-water vessel change.
+- Prices never ride the facets. `amount` is a number; a `% of another line` is a computed amount plus optional `meta`, which Heroes stores and does not evaluate.
+- Build the spec from the document, then run `--dry-run` first: it performs every read and check and prints the exact wire bodies without writing. Ask the human for any price you had to infer.
+- Stop rather than substitute when the issuer has no Heroes tenant (`issuer_not_in_network`, exit `5`).
+- Read the exit code as a statement about what remains in Heroes. Nothing remains on `2`, `4`, `5`, `6`, or `9` — `6` and `9` mean the run created something and then released it. The offer is recorded on `0` and on `8`, where only the document is missing: re-attach with `upload-attachment.ts <event-id> <folder>`. **`7` and `10` mean state may remain and a human has to look**: never rerun the command, because a retry mints a second offer. Check what is actually there with `POST /offers/search` or the Heroes UI, then resume with `--journey-id` or release by hand.
+- `--journey-id` resumes exactly one case: the journey was minted and service creation had not succeeded. The helper refuses any other target, because the batch advance moves every service on the journey, not only the ones it created.
+
+Read `references/offer.md` for the railway, the spec shape, the exit codes, and the worked example.
+
 ## Inspect and watch
 
 - `service-status.ts <service-id> [--download]` folds current strategies, events, and attachments into one view.
@@ -76,4 +91,4 @@ Read the returned JSON, summarize downloaded documents, request any due business
 
 ## Boundaries
 
-Current scope is HANDSHAKE and solicited one-to-one RFQ. There is no MCP server, hosted authentication flow, dashboard, hook, or subagent requirement. Two counterparties must use separate peer workspaces and credentials; never impersonate both sides from one peer. See `references/architecture.md`, `references/domain-model.md`, and `references/portability.md`.
+Current scope is HANDSHAKE, solicited one-to-one RFQ, and filing a held quote as an OFFER. Instantiating an offer into a shipment (`POST /journeys/{offerId}/instantiate`) is out of scope: it requires `RFQ` + `ACCEPTED` on every service, and a direct-quote filing books nothing. There is no MCP server, hosted authentication flow, dashboard, hook, or subagent requirement. Two counterparties must use separate peer workspaces and credentials; never impersonate both sides from one peer. See `references/architecture.md`, `references/domain-model.md`, and `references/portability.md`.

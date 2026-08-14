@@ -19,6 +19,8 @@ run(async () => {
   kv('output', output);
   kv('service keys', catalog.services.length);
   kv('asset types', catalog.assetTypes.length);
+  kv('location roles', catalog.locationRoles.join(', '));
+  kv('timeframe kinds', catalog.timeframeKinds.join(', '));
   kv('strategies', catalog.strategies.length);
   kv('OpenAPI version', catalog.openApiVersion);
   kv('response hash', catalog.responseHash);

@@ -189,6 +189,7 @@ Representative prompts:
 - “Inspect this incoming RFQ, find the applicable filed rate, prepare the quote, and watch for a reply.”
 - “Check service `…`, download new attachments, and tell me whether a business decision is due.”
 - “Ingest the CSV files in my rate-book inbox with a dry run first.”
+- “Hapag sent us this door quote. File it in Heroes as an offer from them to us.”
 
 The agent confirms identity at session start, derives maker/taker per move, consults the railway before mutations, and asks the human only for genuine commitments. Payload staging accepts exactly one non-hidden file.
 
@@ -228,6 +229,17 @@ node <plugin-root>/scripts/run-tool.mjs request-quotation.ts <payload-folder> --
 ```
 
 Use it only when RFQ service creation did not succeed. It skips duplicate journey creation, but it cannot prevent a duplicate service after a later partial failure.
+
+To file a quote a counterparty already sent — a carrier PDF, a spot-rate mail — as a Heroes `OFFER`, describe it once in a JSON spec and preview before writing:
+
+```text
+node <plugin-root>/scripts/run-tool.mjs compose-offer.ts <offer-spec.json> --dry-run
+node <plugin-root>/scripts/run-tool.mjs compose-offer.ts <offer-spec.json> --attach <payload-folder>
+```
+
+`compose-offer.ts` creates one `OFFER` journey, its services with `participantTenantKeys.issuer` / `.recipient`, and one `DIRECT_QUOTE / QUOTED` advance carrying the `offer_charges` payload, then attaches the staged document to the returned event. Location roles and timeframe kinds are read from `GET /catalog/location-roles` and `GET /catalog/timeframe-kinds`; neither list is hard-coded, and neither is scraped from the published spec. `--journey-id` resumes only a journey you own that is an empty `OFFER`, because the batch advance moves every service on the journey.
+
+Every exit code states what remains in Heroes. Nothing remains on `2` (a catalog could not be read), `4` (the spec or the resume journey was rejected before the first write), `5` (`issuer_not_in_network` — the issuer must be enrolled, never substituted), `6` (Heroes did not persist the offer relationship), or `9` (a create or the advance was definitively rejected); on `6` and `9` the run released its services and then any journey it minted. The offer is recorded on `0`, and on `8`, where only the document is missing — re-attach with `upload-attachment.ts`. Exits `7` and `10` mean state may remain: a journey create whose outcome was never seen, an advance whose response was lost, or a release that did not finish. Neither is ever retried, because a retry mints a second offer; reconcile from the ids in the output. See `skills/heroes-agent/references/offer.md` for the spec shape, the full exit table, and the worked example.
 
 For a rate-contract test, first save the current Heroes catalog. Then copy `self/rate-book/sample-rates.csv` to `self/rate-book/inbox/sample-rates.csv`, preview the import, import it, and query the created index:
 

@@ -59,6 +59,7 @@ try {
   mkdirSync(join(staging, 'railways'), { recursive: true });
   cpSync(join(references, 'handshake.md'), join(staging, 'railways', 'handshake.md'));
   cpSync(join(references, 'rfq.md'), join(staging, 'railways', 'rfq.md'));
+  cpSync(join(references, 'offer.md'), join(staging, 'railways', 'offer.md'));
   const identityPath = join(staging, 'self', 'identity.md');
   const identity = readFileSync(identityPath, 'utf8')
     .replace('<tenant-key>', tenantKey)
