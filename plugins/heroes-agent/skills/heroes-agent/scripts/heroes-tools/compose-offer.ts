@@ -10,15 +10,27 @@
  *   npx tsx compose-offer.ts <offer-spec.json> [--attach <payload-folder>] \
  *       [--journey-id <id>] [--dry-run] [--json]
  *
- * Exit codes:
+ * Exit codes. Every one of them says what remains in Heroes, because that is the
+ * only thing the caller has to act on:
+ *
+ *   NOTHING WAS WRITTEN
  *   0  offer composed (or --dry-run validated)
- *   1  unexpected error
  *   2  a required Heroes catalog could not be read
- *   4  the spec is invalid (structure, unknown role/kind/service/subtype/locode)
+ *   4  the spec, or the resume journey, was rejected before the first write
  *   5  issuer_not_in_network — the offering party has no Heroes tenant key
+ *
+ *   WRITTEN, THEN FULLY RELEASED — nothing remains
  *   6  issuer_recipient_write_unavailable — Heroes did not persist the roles
- *   7  journey_create_unconfirmed — never retried; reconcile by hand
- *   8  attachment_failed — the offer IS recorded; re-attach with upload-attachment.ts
+ *   9  a create or the advance was definitively rejected; what this run made is gone
+ *
+ *   STATE MAY REMAIN — reconcile before refiling, and do not rerun
+ *   7  journey_create_unconfirmed — the journey may or may not exist
+ *  10  an outcome was lost (or a release did not finish); ids are in the output
+ *
+ *   THE QUOTE IS RECORDED
+ *   8  attachment_failed — only the document is missing; re-attach with upload-attachment.ts
+ *
+ *   1  unexpected error
  *
  * See references/offer.md for the railway, the vocabularies, and the worked example.
  */
@@ -36,6 +48,10 @@ import {
   type Config,
 } from './lib';
 import { existsSync, readFileSync } from 'node:fs';
+// One definition of what Heroes accepts. `isIsoDate` / `isIsoDateTime` mirror the
+// server's `z.iso.date()` / `z.iso.datetime()` — real calendar dates, and `Z` only,
+// because a numeric offset is rejected there.
+import { ISO_CURRENCIES, isIsoDate, isIsoDateTime } from './rate-contract';
 
 // ---------------------------------------------------------------------------
 // Spec
@@ -77,12 +93,13 @@ interface OfferSpec {
   services: SpecService[];
 }
 
-/** `2026-07-01` or `2026-07-01T00:00:00Z` — what Heroes accepts on the wire. */
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
-
+/**
+ * `2026-07-01` or `2026-07-01T00:00:00Z` — exactly what Heroes accepts on the wire.
+ * A numeric offset (`+02:00`) and an impossible date (`2026-02-31`) both fail here,
+ * so `--dry-run` proves the write will pass rather than only that it looks plausible.
+ */
 function isIsoWireDate(value: unknown): boolean {
-  return typeof value === 'string' && (ISO_DATE.test(value) || ISO_DATETIME.test(value));
+  return typeof value === 'string' && (isIsoDate(value) || isIsoDateTime(value));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -211,10 +228,15 @@ function readSpec(path: string): { spec?: OfferSpec; issues: string[] } {
         continue;
       }
       if (!nonEmptyString(charge.chargeKey)) issues.push(`${chargeAt}.chargeKey is required`);
-      if (typeof charge.amount !== 'number' || !Number.isFinite(charge.amount)) {
-        issues.push(`${chargeAt}.amount must be a number — a "% of another line" is a COMPUTED amount, plus meta`);
+      // Zero is a real quoted value ("included"); a negative one is not a price.
+      if (typeof charge.amount !== 'number' || !Number.isFinite(charge.amount) || charge.amount < 0) {
+        issues.push(
+          `${chargeAt}.amount must be a number, zero or more — a "% of another line" is a COMPUTED amount, plus meta`,
+        );
       }
-      if (!nonEmptyString(charge.currency)) issues.push(`${chargeAt}.currency is required`);
+      if (!nonEmptyString(charge.currency) || !ISO_CURRENCIES.has(charge.currency)) {
+        issues.push(`${chargeAt}.currency must be an ISO 4217 code (EUR, USD)`);
+      }
     }
     if (raw.charges !== undefined && !Array.isArray(raw.charges)) issues.push(`${at}.charges must be an array`);
   }
@@ -310,7 +332,7 @@ function validateAgainstCatalogs(spec: OfferSpec, catalogs: Catalogs): string[] 
       }
     }
     for (const subtype of service.subtypes ?? []) {
-      if (catalogs.assetSubtypes.size && !catalogs.assetSubtypes.has(subtype)) {
+      if (!catalogs.assetSubtypes.has(subtype)) {
         issues.push(
           `${at}.subtypes "${subtype}" is not a Heroes asset subtype — map the carrier's label ` +
             `(20'STD → 20DC, 40'HC → 40HC) against GET /catalog/asset-subtypes`,
@@ -527,6 +549,18 @@ async function compose(config: Config): Promise<void> {
   say('location roles', [...catalogs.locationRoles].sort().join(', '));
   say('timeframe kinds', [...catalogs.timeframeKinds].sort().join(', '));
 
+  // An empty subtype catalog cannot approve a subtype; it means the read did not
+  // answer. Silently treating every user-supplied subtype as valid would break the
+  // promise that every controlled value is resolved before the first write.
+  if (spec.services.some((service) => service.subtypes?.length) && catalogs.assetSubtypes.size === 0) {
+    refuse(2, 'catalog_unavailable', {
+      detail:
+        'The spec names cargo subtypes, but GET /catalog/asset-subtypes returned none, so no subtype ' +
+        'can be checked. Retry the read; do not file the offer with unverified equipment.',
+      needed: ['GET /catalog/asset-types', 'GET /catalog/asset-subtypes'],
+    });
+  }
+
   const catalogIssues = [
     ...validateAgainstCatalogs(spec, catalogs),
     ...(await validateLocodes(config, apiKey, spec)),
@@ -559,6 +593,16 @@ async function compose(config: Config): Promise<void> {
     refuse(5, 'issuer_not_in_network', {
       issuerTenantKey,
       detail: 'No Heroes tenant has this tenantKey. Enrol the issuing party rather than renaming it.',
+    });
+  }
+  // Re-checked after resolution, not only on the literal spec: a provider code can
+  // resolve to the recipient's own tenant, and an offer whose two parties collapse
+  // into one is not an offer.
+  if (issuerTenantKey === spec.recipient.tenantKey) {
+    refuse(4, 'issuer_and_recipient_are_the_same_tenant', {
+      issuerTenantKey,
+      recipientTenantKey: spec.recipient.tenantKey,
+      ...(spec.issuer.providerCode ? { resolvedFrom: spec.issuer.providerCode } : {}),
     });
   }
   if (!(await tenantKeyExists(config, apiKey, spec.recipient.tenantKey))) {
@@ -599,14 +643,74 @@ async function compose(config: Config): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
-  // Writes. Everything created here is released, services before the journey,
-  // if the run cannot reach a recorded quote.
+  // Writes.
+  //
+  // A write that the server DEFINITIVELY rejected (a 4xx: it validated the body and
+  // said no) left nothing behind, so this run releases what it created — services
+  // first, then the journey it minted. A write whose outcome is UNKNOWN (a transport
+  // error, a 5xx) is never compensated: the transaction may have committed before the
+  // response was lost, and deleting on that guess would erase a quote that is already
+  // filed. Those cases keep their ids and come back for reconciliation.
   // -------------------------------------------------------------------------
+
+  /** True when the server answered, validated the request, and refused it: nothing was written. */
+  const definitivelyRejected = (error: unknown): boolean =>
+    error instanceof ApiError && error.status >= 400 && error.status < 500;
 
   let journeyId = existingJourneyId;
   const createdJourney = !journeyId;
   if (journeyId) {
-    section('Using existing offer journey');
+    section('Checking the resume journey');
+    // The batch advance moves EVERY service on this journey, not only the ones created
+    // here. A typo, or a journey that already carries work, would drag unrelated
+    // services into this quote — so the resume target must be an owned, empty OFFER.
+    let journey: { id?: string; type?: string } | undefined;
+    try {
+      journey = await api<{ id?: string; type?: string }>(config, {
+        method: 'GET',
+        path: `/journeys/${encodeURIComponent(journeyId)}`,
+        apiKey,
+      });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        refuse(4, 'resume_journey_not_found', {
+          journeyId,
+          detail:
+            'GET /journeys is owner-scoped: this id does not exist, or it is not yours. Do not create ' +
+            'services on a journey you cannot read.',
+        });
+      }
+      throw error;
+    }
+    if (journey?.type !== 'OFFER') {
+      refuse(4, 'resume_journey_is_not_an_offer', {
+        journeyId,
+        type: journey?.type ?? null,
+        detail:
+          'A held quote is filed on an OFFER journey. Filing it on a SHIPMENT would advance that ' +
+          "shipment's services with this quote's charges.",
+      });
+    }
+    const existingRaw = await api<unknown>(config, {
+      method: 'GET',
+      path: `/journeys/${encodeURIComponent(journeyId)}/services`,
+      apiKey,
+    });
+    const existing = Array.isArray(existingRaw)
+      ? existingRaw
+      : isRecord(existingRaw) && Array.isArray(existingRaw.services)
+        ? existingRaw.services
+        : [];
+    if (existing.length > 0) {
+      refuse(4, 'resume_journey_is_not_empty', {
+        journeyId,
+        existingServices: existing.length,
+        detail:
+          '--journey-id resumes the one recovery case this helper supports: the journey was minted, ' +
+          'and service creation had not succeeded. This journey already carries services, and the ' +
+          'advance would move them too. Reconcile it by hand, or file the quote on a new journey.',
+      });
+    }
   } else {
     section('Creating offer journey');
     try {
@@ -620,8 +724,8 @@ async function compose(config: Config): Promise<void> {
     } catch (error) {
       // A rejected body created nothing. Anything else — a timeout, a 5xx — may
       // or may not have minted a journey, and retrying would mint a second one.
-      if (error instanceof ApiError && error.status < 500) {
-        refuse(4, 'journey_create_rejected', { detail: error.message });
+      if (definitivelyRejected(error)) {
+        refuse(4, 'journey_create_rejected', { detail: (error as ApiError).message });
       }
       refuse(7, 'journey_create_unconfirmed', {
         detail: error instanceof Error ? error.message : String(error),
@@ -660,6 +764,39 @@ async function compose(config: Config): Promise<void> {
     return { releasedServices, releasedJourney, failures };
   };
 
+  /**
+   * Release after a definitive rejection, and report it. `code` is the refusal's own
+   * meaning when nothing is left behind; if the release itself could not finish, that
+   * becomes exit `10` instead — state may remain, and a human has to look.
+   */
+  const releaseAndRefuse: (
+    code: number,
+    reason: string,
+    detail: Record<string, unknown>,
+  ) => Promise<never> = async (code, reason, detail) => {
+    const released = await release();
+    refuse(released.failures.length ? 10 : code, reason, {
+      ...detail,
+      ...released,
+      journeyId,
+      ...(released.failures.length
+        ? { nextStep: 'Release did not finish. Reconcile the ids above by hand before refiling.' }
+        : {}),
+    });
+  };
+
+  /** Keep everything, name it, and hand it to a human: the outcome is genuinely unknown. */
+  const reconcile: (reason: string, detail: Record<string, unknown>) => never = (reason, detail) =>
+    refuse(10, reason, {
+      ...detail,
+      journeyId,
+      serviceIds: createdServiceIds,
+      nextStep:
+        'Nothing was deleted: this write may have committed before its response was lost, and ' +
+        'compensating on a guess would erase a filed quote. Check the journey (POST /offers/search, ' +
+        'or the Heroes UI) and finish or release it by hand. Do not rerun this command.',
+    });
+
   section('Creating offer services');
   const serviceIdByRowId: Record<string, string> = {};
   for (const service of spec.services) {
@@ -672,28 +809,28 @@ async function compose(config: Config): Promise<void> {
         body: serviceCreateBody(spec, service, journeyId!, issuerTenantKey!),
       });
     } catch (error) {
-      const released = await release();
-      refuse(4, 'service_create_failed', {
-        rowId: service.rowId,
-        detail: error instanceof Error ? error.message : String(error),
-        ...released,
-      });
+      const detail = { rowId: service.rowId, detail: error instanceof Error ? error.message : String(error) };
+      if (!definitivelyRejected(error)) {
+        // The service may exist under an id this run never saw. Releasing the rest
+        // would then strand it on a half-built offer.
+        reconcile('service_create_unconfirmed', detail);
+      }
+      await releaseAndRefuse(9, 'service_create_rejected', detail);
     }
 
     // Refuse rather than invent: if Heroes did not persist the relationship, the
-    // answer is a Heroes write, not an assignment-role stand-in.
+    // answer is a Heroes write, not an assignment-role stand-in. The service exists
+    // and carries no strategy, so this one IS safe to release.
     const roles = relationshipRoles(created!);
     if (roles.issuer !== issuerTenantKey || roles.recipient !== spec.recipient.tenantKey) {
       createdServiceIds.push(created!.id);
-      const released = await release();
-      refuse(6, 'issuer_recipient_write_unavailable', {
+      await releaseAndRefuse(6, 'issuer_recipient_write_unavailable', {
         rowId: service.rowId,
         expected: { issuer: issuerTenantKey, recipient: spec.recipient.tenantKey },
         persisted: roles,
         detail:
           'POST /services did not store the OFFER relationship. Do not remap issuer→assignee or ' +
           'recipient→assigner; that records a relationship nobody agreed to. This needs a Heroes API fix.',
-        ...released,
       });
     }
 
@@ -713,17 +850,24 @@ async function compose(config: Config): Promise<void> {
       body,
     });
   } catch (error) {
-    // The advance is all-or-nothing, so a failure leaves no strategy instance:
-    // this is still a pre-advance attempt, and it is released whole.
-    const released = await release();
-    refuse(4, 'advance_failed', {
-      detail: error instanceof Error ? error.message : String(error),
-      ...released,
-    });
+    const detail = { detail: error instanceof Error ? error.message : String(error) };
+    // The advance is transactional, but transactional is not the same as observed. A
+    // 4xx means it was refused before committing, so this is still a pre-advance
+    // attempt and it is released whole. A lost response or a 5xx may sit on either
+    // side of the commit, and deleting there would erase a quote that IS filed.
+    if (!definitivelyRejected(error)) {
+      reconcile('advance_unconfirmed', detail);
+    }
+    await releaseAndRefuse(9, 'advance_rejected', detail);
   }
-  const eventId = advanced!.advanced?.[0]?.eventId;
-  say('services advanced', advanced!.advanced?.length ?? 0);
-  say('eventId', eventId ?? '—');
+  // Heroes records ONE event for the whole batch, so every `advanced[]` row carries
+  // the same id — that is what the document attaches to. Reported as a set, so a
+  // future change to that guarantee is visible rather than silently half-attached.
+  const advancedRows = advanced!.advanced ?? [];
+  const eventIds = [...new Set(advancedRows.map((row) => row.eventId))];
+  const eventId = eventIds[0];
+  say('services advanced', advancedRows.length);
+  say('eventId', eventIds.join(', ') || '—');
   say('charges', (body.payload ? JSON.parse(body.payload as string).charges.length : 0));
   if (!body.payload && !jsonOnly) {
     console.log('\n  No charges in the spec — the offer carries no offer_charges payload.');
@@ -768,11 +912,13 @@ async function compose(config: Config): Promise<void> {
       serviceKey: service.serviceKey,
     })),
     eventId: eventId ?? null,
+    eventIds,
+    attachmentEventId: payload ? (eventId ?? null) : null,
     attachment: payload?.filename ?? null,
   };
   section('Done');
   say('journeyId', journeyId);
-  say('eventId', eventId ?? '—');
+  say('eventId', eventIds.join(', ') || '—');
   if (!jsonOnly) {
     // Kept free of braces so the JSON result below is the only parseable object on stdout.
     console.log(

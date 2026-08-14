@@ -67,6 +67,7 @@ function hapagSpec(overrides: Record<string, unknown> = {}): Record<string, unkn
           { code: 'BEANR', role: 'port_of_loading', sequence: 1 },
           { code: 'DOCAU', role: 'transshipment', sequence: 2 },
           { code: 'KYGCM', role: 'port_of_discharge', sequence: 3 },
+          { code: 'KYGCM', role: 'destination', sequence: 3 },
         ],
         timeframes: [{ kind: 'validity', dateFrom: '2024-10-16', dateTo: '2024-11-30' }],
         subtypes: ['20DC', '40DC', '40HC'],
@@ -105,7 +106,16 @@ interface StubOptions {
   tenants?: string[];
   /** Participants POST /services echoes back. Defaults to the pair that was sent. */
   participantsFor?: (body: Record<string, any>) => unknown[];
+  /** Cargo subtypes `GET /catalog/asset-subtypes` returns. Defaults to the three box sizes. */
+  assetSubtypes?: string[];
   journeyCreate?: (response: ServerResponse) => void;
+  /** Answer for `GET /journeys/{id}` when resuming. */
+  resumeJourney?: { type?: string } | 'not-found';
+  /** Services already on the resume journey. */
+  resumeJourneyServices?: unknown[];
+  serviceCreate?: (response: ServerResponse) => void;
+  advance?: (response: ServerResponse) => void;
+  attachment?: (response: ServerResponse) => void;
 }
 
 /** A Heroes stub that answers the reads compose-offer must do before any write. */
@@ -157,9 +167,8 @@ function heroesStub(requests: RecordedRequest[], options: StubOptions = {}) {
       return json(200, { asset_types: [{ code: 'container' }] });
     }
     if (url === '/api/catalog/asset-subtypes?asset_type=container') {
-      return json(200, {
-        asset_subtypes: [{ subtype: '20DC' }, { subtype: '40DC' }, { subtype: '40HC' }],
-      });
+      const subtypes = options.assetSubtypes ?? ['20DC', '40DC', '40HC'];
+      return json(200, { asset_subtypes: subtypes.map((subtype) => ({ subtype })) });
     }
     if (url.startsWith('/api/locodes/')) {
       const code = decodeURIComponent(url.slice('/api/locodes/'.length));
@@ -168,6 +177,15 @@ function heroesStub(requests: RecordedRequest[], options: StubOptions = {}) {
         return response.end(JSON.stringify({ success: false, error: `Locode ${code} not found` }));
       }
       return json(200, { code, name: code });
+    }
+    if (url.startsWith('/api/tenants/by-provider-code/')) {
+      const enrolled: Record<string, string> = { 'scac/HLCU': 'hapag-lloyd', 'scac/SCHR': 'hj-schryver-de' };
+      const tenantKey = enrolled[url.slice('/api/tenants/by-provider-code/'.length)];
+      if (!tenantKey) {
+        response.writeHead(404, { 'content-type': 'application/json' });
+        return response.end(JSON.stringify({ success: false, error: 'Tenant not found' }));
+      }
+      return json(200, { id: 96, tenantKey, name: tenantKey });
     }
     if (url.startsWith('/api/tenants/discover')) {
       const q = new URL(url, 'http://stub').searchParams.get('q') ?? '';
@@ -179,7 +197,19 @@ function heroesStub(requests: RecordedRequest[], options: StubOptions = {}) {
       if (options.journeyCreate) return options.journeyCreate(response);
       return json(201, { id: 'offer-journey-1', type: 'OFFER' });
     }
+    if (request.method === 'GET' && /^\/api\/journeys\/[^/]+$/.test(url)) {
+      if (options.resumeJourney === 'not-found') {
+        response.writeHead(404, { 'content-type': 'application/json' });
+        return response.end(JSON.stringify({ success: false, error: 'Journey not found' }));
+      }
+      const id = url.slice('/api/journeys/'.length);
+      return json(200, { id, type: options.resumeJourney?.type ?? 'OFFER' });
+    }
+    if (request.method === 'GET' && /^\/api\/journeys\/[^/]+\/services$/.test(url)) {
+      return json(200, { services: options.resumeJourneyServices ?? [] });
+    }
     if (url === '/api/services' && request.method === 'POST') {
+      if (options.serviceCreate) return options.serviceCreate(response);
       serviceCounter += 1;
       const sent = JSON.parse(body.toString('utf8'));
       const participants = options.participantsFor
@@ -190,7 +220,8 @@ function heroesStub(requests: RecordedRequest[], options: StubOptions = {}) {
           ];
       return json(201, { id: `offer-service-${serviceCounter}`, serviceKey: sent.serviceKey, participants });
     }
-    if (url === '/api/journeys/offer-journey-1/strategy/advance' && request.method === 'POST') {
+    if (request.method === 'POST' && url.endsWith('/strategy/advance')) {
+      if (options.advance) return options.advance(response);
       return json(200, {
         count: 1,
         advanced: [{
@@ -199,7 +230,10 @@ function heroesStub(requests: RecordedRequest[], options: StubOptions = {}) {
         skipped: [],
       });
     }
-    if (url === '/api/events/attachments' && request.method === 'POST') return json(201, { id: 501 });
+    if (url === '/api/events/attachments' && request.method === 'POST') {
+      if (options.attachment) return options.attachment(response);
+      return json(201, { id: 501 });
+    }
     if (request.method === 'DELETE') return json(200, {});
     response.writeHead(404, { 'content-type': 'application/json' });
     response.end(JSON.stringify({ success: false, error: 'not stubbed' }));
@@ -274,6 +308,7 @@ test('composing a held quote files one OFFER with issuer/recipient, POL/POD and 
       { code: 'BEANR', role: 'port_of_loading', sequence: 1 },
       { code: 'DOCAU', role: 'transshipment', sequence: 2 },
       { code: 'KYGCM', role: 'port_of_discharge', sequence: 3 },
+      { code: 'KYGCM', role: 'destination', sequence: 3 },
     ]);
     // ISO strings on the wire, and one service covering three box sizes.
     assert.deepEqual(serviceBody.timeframes, [
@@ -476,6 +511,240 @@ test('an unresolvable place code is refused before any write', async () => {
     assert.deepEqual(writeRequests(requests), []);
     const printed = JSON.parse(result.stdout.slice(result.stdout.indexOf('{')));
     assert.match(printed.issues.join('\n'), /unknown UN\/LOCODE "XXNOP"/);
+  });
+});
+
+test('an advance whose outcome was lost keeps everything for reconciliation', async () => {
+  await withStub(
+    'heroes-compose-offer-advance-lost-',
+    {
+      advance: (response) => {
+        response.writeHead(502, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ success: false, message: 'bad gateway' }));
+      },
+    },
+    async ({ workspace, port, requests }) => {
+      const specPath = writeSpec(workspace, hapagSpec());
+      const result = await runTool(workspace, port, ['compose-offer.ts', specPath]);
+
+      assert.equal(result.code, 10);
+      // Nothing is deleted: the transaction may have committed before the response
+      // was lost, and compensating on a guess would erase a filed quote.
+      assert.deepEqual(writeRequests(requests).map((request) => `${request.method} ${request.url}`), [
+        'POST /api/journeys',
+        'POST /api/services',
+        'POST /api/journeys/offer-journey-1/strategy/advance',
+      ]);
+      const printed = JSON.parse(result.stdout.slice(result.stdout.indexOf('{')));
+      assert.equal(printed.reason, 'advance_unconfirmed');
+      assert.equal(printed.journeyId, 'offer-journey-1');
+      assert.deepEqual(printed.serviceIds, ['offer-service-1']);
+      assert.match(printed.nextStep, /Nothing was deleted/);
+      assert.match(printed.nextStep, /Do not rerun this command/);
+    },
+  );
+});
+
+test('an advance the server refused releases the attempt whole', async () => {
+  await withStub(
+    'heroes-compose-offer-advance-refused-',
+    {
+      advance: (response) => {
+        response.writeHead(400, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ success: false, message: 'no service can take this step' }));
+      },
+    },
+    async ({ workspace, port, requests }) => {
+      const specPath = writeSpec(workspace, hapagSpec());
+      const result = await runTool(workspace, port, ['compose-offer.ts', specPath]);
+
+      assert.equal(result.code, 9);
+      assert.deepEqual(writeRequests(requests).map((request) => `${request.method} ${request.url}`), [
+        'POST /api/journeys',
+        'POST /api/services',
+        'POST /api/journeys/offer-journey-1/strategy/advance',
+        'DELETE /api/services/offer-service-1',
+        'DELETE /api/journeys/offer-journey-1',
+      ]);
+      const printed = JSON.parse(result.stdout.slice(result.stdout.indexOf('{')));
+      assert.equal(printed.reason, 'advance_rejected');
+      assert.deepEqual(printed.releasedServices, ['offer-service-1']);
+      assert.equal(printed.releasedJourney, 'offer-journey-1');
+      assert.deepEqual(printed.failures, []);
+    },
+  );
+});
+
+test('resuming on a caller-supplied journey releases services but never that journey', async () => {
+  await withStub(
+    'heroes-compose-offer-resume-',
+    {
+      serviceCreate: (response) => {
+        response.writeHead(400, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ success: false, message: 'Template "oceanfreight" is deprecated' }));
+      },
+    },
+    async ({ workspace, port, requests }) => {
+      const specPath = writeSpec(workspace, hapagSpec());
+      const result = await runTool(workspace, port, [
+        'compose-offer.ts', specPath, '--journey-id', 'caller-journey-9',
+      ]);
+
+      assert.equal(result.code, 9);
+      // The resume journey was checked, never created, and never deleted.
+      const urls = requests.map((request) => `${request.method} ${request.url}`);
+      assert.ok(urls.includes('GET /api/journeys/caller-journey-9'));
+      assert.ok(urls.includes('GET /api/journeys/caller-journey-9/services'));
+      assert.deepEqual(writeRequests(requests).map((request) => `${request.method} ${request.url}`), [
+        'POST /api/services',
+      ]);
+      const printed = JSON.parse(result.stdout.slice(result.stdout.indexOf('{')));
+      assert.equal(printed.reason, 'service_create_rejected');
+      assert.equal(printed.releasedJourney, null);
+      assert.equal(printed.journeyId, 'caller-journey-9');
+    },
+  );
+});
+
+test('a resume journey that is not an empty OFFER is refused before any service is created', async () => {
+  await withStub(
+    'heroes-compose-offer-resume-shipment-',
+    { resumeJourney: { type: 'SHIPMENT' } },
+    async ({ workspace, port, requests }) => {
+      const specPath = writeSpec(workspace, hapagSpec());
+      const result = await runTool(workspace, port, [
+        'compose-offer.ts', specPath, '--journey-id', 'someone-elses-shipment',
+      ]);
+
+      assert.equal(result.code, 4);
+      assert.deepEqual(writeRequests(requests), []);
+      const printed = JSON.parse(result.stdout.slice(result.stdout.indexOf('{')));
+      assert.equal(printed.reason, 'resume_journey_is_not_an_offer');
+      assert.equal(printed.type, 'SHIPMENT');
+    },
+  );
+
+  await withStub(
+    'heroes-compose-offer-resume-busy-',
+    { resumeJourneyServices: [{ id: 'older-service-1' }] },
+    async ({ workspace, port, requests }) => {
+      const specPath = writeSpec(workspace, hapagSpec());
+      const result = await runTool(workspace, port, [
+        'compose-offer.ts', specPath, '--journey-id', 'busy-offer-2',
+      ]);
+
+      assert.equal(result.code, 4);
+      assert.deepEqual(writeRequests(requests), []);
+      const printed = JSON.parse(result.stdout.slice(result.stdout.indexOf('{')));
+      assert.equal(printed.reason, 'resume_journey_is_not_empty');
+      assert.equal(printed.existingServices, 1);
+    },
+  );
+});
+
+test('a failed attachment keeps the recorded quote and names the re-attach step', async () => {
+  await withStub(
+    'heroes-compose-offer-attach-fail-',
+    {
+      attachment: (response) => {
+        response.writeHead(413, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ success: false, message: 'file too large' }));
+      },
+    },
+    async ({ workspace, port, requests }) => {
+      const specPath = writeSpec(workspace, hapagSpec());
+      const attachment = stagedDocument(workspace);
+      const result = await runTool(workspace, port, [
+        'compose-offer.ts', specPath, '--attach', attachment,
+      ]);
+
+      assert.equal(result.code, 8);
+      // The quote is filed. Nothing is released for a missing document.
+      assert.deepEqual(writeRequests(requests).map((request) => `${request.method} ${request.url}`), [
+        'POST /api/journeys',
+        'POST /api/services',
+        'POST /api/journeys/offer-journey-1/strategy/advance',
+        'POST /api/events/attachments',
+      ]);
+      const printed = JSON.parse(result.stdout.slice(result.stdout.indexOf('{')));
+      assert.equal(printed.status, 'recorded');
+      assert.equal(printed.reason, 'attachment_failed');
+      assert.equal(printed.eventId, 9001);
+      assert.match(printed.nextStep, /upload-attachment\.ts 9001/);
+    },
+  );
+});
+
+test('a date Heroes would reject fails in the dry run, not after the journey exists', async () => {
+  // Heroes takes z.iso.date() or a Z-terminated z.iso.datetime(); a numeric offset and
+  // an impossible calendar date are both refused there.
+  for (const [dateFrom, dateTo] of [
+    ['2024-10-16T00:00:00+02:00', '2024-11-30'],
+    ['2024-02-31', '2024-11-30'],
+  ]) {
+    await withStub('heroes-compose-offer-date-', {}, async ({ workspace, port, requests }) => {
+      const spec = hapagSpec();
+      (spec.services as any[])[0].timeframes[0] = { kind: 'validity', dateFrom, dateTo };
+      const specPath = writeSpec(workspace, spec);
+
+      const result = await runTool(workspace, port, ['compose-offer.ts', specPath, '--dry-run']);
+      assert.equal(result.code, 4, `${dateFrom} should not pass`);
+      assert.deepEqual(writeRequests(requests), []);
+      const printed = JSON.parse(result.stdout.slice(result.stdout.indexOf('{')));
+      assert.match(printed.issues.join('\n'), /must be an ISO date string/);
+    });
+  }
+});
+
+test('a provider code that resolves to the filing peer is refused, not filed', async () => {
+  await withStub(
+    'heroes-compose-offer-collapse-',
+    { tenants: ['hj-schryver-de'] },
+    async ({ workspace, port, requests }) => {
+      const specPath = writeSpec(
+        workspace,
+        // The stub resolves any provider code to hj-schryver-de below.
+        hapagSpec({ issuer: { providerCode: { type: 'scac', code: 'SCHR' } } }),
+      );
+      const result = await runTool(workspace, port, ['compose-offer.ts', specPath]);
+
+      assert.equal(result.code, 4);
+      assert.deepEqual(writeRequests(requests), []);
+      const printed = JSON.parse(result.stdout.slice(result.stdout.indexOf('{')));
+      assert.equal(printed.reason, 'issuer_and_recipient_are_the_same_tenant');
+      assert.deepEqual(printed.resolvedFrom, { type: 'scac', code: 'SCHR' });
+    },
+  );
+});
+
+test('an empty subtype catalog stops the run instead of approving every subtype', async () => {
+  await withStub(
+    'heroes-compose-offer-subtypes-',
+    { assetSubtypes: [] },
+    async ({ workspace, port, requests }) => {
+      const specPath = writeSpec(workspace, hapagSpec());
+      const result = await runTool(workspace, port, ['compose-offer.ts', specPath]);
+
+      assert.equal(result.code, 2);
+      assert.deepEqual(writeRequests(requests), []);
+      const printed = JSON.parse(result.stdout.slice(result.stdout.indexOf('{')));
+      assert.equal(printed.reason, 'catalog_unavailable');
+      assert.match(printed.detail, /no subtype can be checked/);
+    },
+  );
+});
+
+test('a charge in an unknown currency is refused before any write', async () => {
+  await withStub('heroes-compose-offer-currency-', {}, async ({ workspace, port, requests }) => {
+    const spec = hapagSpec();
+    (spec.services as any[])[0].charges[0].currency = 'EU';
+    const specPath = writeSpec(workspace, spec);
+
+    const result = await runTool(workspace, port, ['compose-offer.ts', specPath]);
+    assert.equal(result.code, 4);
+    assert.deepEqual(requests, []);
+    const printed = JSON.parse(result.stdout.slice(result.stdout.indexOf('{')));
+    assert.match(printed.issues.join('\n'), /currency must be an ISO 4217 code/);
   });
 });
 

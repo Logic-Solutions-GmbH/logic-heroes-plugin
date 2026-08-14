@@ -281,19 +281,19 @@ function isPositiveDecimal(value: unknown): value is string {
   return typeof value === 'string' && /^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value) && Number(value) > 0;
 }
 
-const ISO_CURRENCIES = new Set([
+export const ISO_CURRENCIES = new Set([
   ...Intl.supportedValuesOf('currency'),
   'BOV', 'CHE', 'CHW', 'CLF', 'COU', 'MXV', 'USN', 'UYI', 'UYW',
   'XBA', 'XBB', 'XBC', 'XBD', 'XDR', 'XSU', 'XTS', 'XUA', 'XXX',
 ]);
 
-function isIsoDate(value: string): boolean {
+export function isIsoDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const date = new Date(`${value}T00:00:00.000Z`);
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
-function isIsoDateTime(value: string): boolean {
+export function isIsoDateTime(value: string): boolean {
   if (!value) return false;
   const date = new Date(value);
   return !Number.isNaN(date.getTime()) && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(value);
@@ -315,6 +315,16 @@ export function validateRateCatalog(
   heroesCatalog: HeroesRateCatalog,
 ): string[] {
   const issues: string[] = [];
+  // A snapshot taken before timeframe kinds were part of the catalog is stale, not
+  // corrupt, and the hash check below cannot tell the operator which it is. Name it
+  // first, so the fix reads as "re-sync" rather than "your file is broken".
+  if (!Array.isArray(heroesCatalog.timeframeKinds)) {
+    issues.push(
+      'Heroes catalog snapshot predates timeframe kinds; re-run sync-rate-catalog.ts, then ' +
+        're-approve affected cards with ingest-rates.ts --approve-by <name>',
+    );
+    return issues;
+  }
   if (heroesCatalog.schemaVersion !== RATE_CONTRACT_VERSION ||
       !isIsoDateTime(heroesCatalog.fetchedAt) ||
       computeHeroesCatalogHash(heroesCatalog) !== heroesCatalog.responseHash) {

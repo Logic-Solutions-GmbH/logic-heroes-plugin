@@ -143,11 +143,18 @@ enrolling, not inventing.
 
 **A lost `POST /journeys` response is never retried.** Retrying mints a second offer that nothing
 links to the first. `compose-offer.ts` exits `7` and names what to reconcile; resume the run with
-`--journey-id <id>` once the journey is identified.
+`--journey-id <id>` once the journey is identified. That resume target is checked first: it must be
+an OFFER you own and it must still be empty, because the batch advance moves **every** service on
+the journey, not only the ones this run created.
 
-**Releasing a failed pre-advance attempt:** delete the services first, then the journey. A
-journey that already carries a strategy instance is not deleted — the quote has been recorded,
-and the fix is a forward correction, not a delete.
+**Releasing a failed pre-advance attempt:** delete the services first, then the journey. Only a
+journey this run minted is deleted — one supplied with `--journey-id` belongs to the caller and is
+left alone. A journey that already carries a strategy instance is not deleted at all: the quote has
+been recorded, and the fix is a forward correction.
+
+**A release is only correct after a definitive rejection.** "Transactional" is not the same as
+"observed": the advance can commit and then lose its response. Deleting on that guess erases a
+filed quote, so an unknown outcome keeps everything and reports it instead.
 
 ## The offer spec
 
@@ -169,7 +176,8 @@ first write.
         { "code": "DELEV", "role": "origin", "sequence": 0 },
         { "code": "BEANR", "role": "port_of_loading", "sequence": 1 },
         { "code": "DOCAU", "role": "transshipment", "sequence": 2 },
-        { "code": "KYGCM", "role": "port_of_discharge", "sequence": 3 }
+        { "code": "KYGCM", "role": "port_of_discharge", "sequence": 3 },
+        { "code": "KYGCM", "role": "destination", "sequence": 3 }
       ],
       "timeframes": [{ "kind": "validity", "dateFrom": "2024-10-16", "dateTo": "2024-11-30" }],
       "subtypes": ["20DC", "40DC", "40HC"],
@@ -200,15 +208,30 @@ wire bodies, and writes nothing.
 compose-offer.ts <offer-spec.json> [--attach <payload-folder>] [--journey-id <id>] [--dry-run] [--json]
 ```
 
-| Exit | Meaning |
-| --- | --- |
-| `0` | offer composed, or `--dry-run` validated |
-| `2` | a required Heroes catalog could not be read — do not proceed from memory |
-| `4` | the spec is invalid: structure, or a value no catalog knows |
-| `5` | `issuer_not_in_network` — the offering party has no Heroes tenant |
-| `6` | `issuer_recipient_write_unavailable` — Heroes did not persist the roles; nothing was left behind |
-| `7` | `journey_create_unconfirmed` — never retried; reconcile, then resume with `--journey-id` |
-| `8` | `attachment_failed` — the offer **is** recorded; re-attach with `upload-attachment.ts <event-id> <folder>` |
+Every exit code says what remains in Heroes, because that is the only thing you have to
+act on.
+
+| Exit | What remains | Meaning |
+| --- | --- | --- |
+| `0` | the offer | composed, or `--dry-run` validated (which writes nothing) |
+| `2` | nothing | a required catalog could not be read — do not proceed from memory |
+| `4` | nothing | the spec, or the resume journey, was rejected before the first write |
+| `5` | nothing | `issuer_not_in_network` — the offering party has no Heroes tenant |
+| `6` | nothing | `issuer_recipient_write_unavailable` — the roles did not persist; the attempt was released |
+| `9` | nothing | a create or the advance was definitively rejected; what this run made is gone |
+| `7` | **maybe a journey** | `journey_create_unconfirmed` — its id was never seen |
+| `10` | **maybe an offer** | an outcome was lost, or a release did not finish; the ids are in the output |
+| `8` | the offer | `attachment_failed` — only the document is missing; re-attach with `upload-attachment.ts <event-id> <folder>` |
+| `1` | unknown | unexpected error |
+
+`7` and `10` are the two codes that need a human. Neither is ever retried: a retry mints
+a second offer, and the correct next move is to look at what is actually there
+(`POST /offers/search`, or the Heroes UI) and then finish or release it by hand.
+
+The distinction behind `9` and `10` is what the server told us. A `4xx` means it read the
+request and refused it, so nothing was committed and the run releases what it created. A
+lost response or a `5xx` may sit on either side of the commit — compensating there would
+delete a quote that is already filed, so nothing is touched.
 
 ## Do not
 
@@ -239,7 +262,14 @@ quoted for three box sizes and stated as service 1 of 1:
   | Door / place of receipt | `DELEV` | `origin` |
   | Ocean load port | `BEANR` | `port_of_loading` |
   | Intermediate ocean call | `DOCAU` | `transshipment` |
-  | Discharge / place of delivery | `KYGCM` | `port_of_discharge` |
+  | Ocean discharge port | `KYGCM` | `port_of_discharge` |
+  | Place of delivery | `KYGCM` | `destination` |
+
+  The quote ends at the discharge port, so `KYGCM` carries two roles: it is the main
+  leg's discharge port **and** the end of the service. Both rows are filed. A quote that
+  ran on to an inland door would name that door as `destination` instead, and `KYGCM`
+  would stay `port_of_discharge` alone. Never leave a service without a `destination`
+  because a port happens to be its last stop.
 
 - Timeframe: `{ "kind": "validity", "dateFrom": "2024-10-16", "dateTo": "2024-11-30" }`.
 - `issuer`: `hapag-lloyd` (SCAC `HLCU`). `recipient`: the filing peer, e.g. `hj-schryver-de`.

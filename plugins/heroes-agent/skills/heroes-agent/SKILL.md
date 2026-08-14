@@ -73,7 +73,9 @@ Read `references/rfq.md` and `references/rate-book.md` before moving an RFQ.
 - `origin` / `destination` are the ends of the whole service — an inland door on a door-to-door quote. `port_of_loading` / `port_of_discharge` are the main leg's ports; on a door-to-port quote the load port is neither the origin nor a transshipment. `transshipment` is a genuine mid-water vessel change.
 - Prices never ride the facets. `amount` is a number; a `% of another line` is a computed amount plus optional `meta`, which Heroes stores and does not evaluate.
 - Build the spec from the document, then run `--dry-run` first: it performs every read and check and prints the exact wire bodies without writing. Ask the human for any price you had to infer.
-- Stop rather than substitute when the issuer has no Heroes tenant (`issuer_not_in_network`, exit `5`). Never retry a journey create whose outcome is unknown (exit `7`) — it mints a second offer; resume with `--journey-id` once the journey is identified. Exit `8` means the quote **is** recorded and only the document is missing: re-attach with `upload-attachment.ts <event-id> <folder>`.
+- Stop rather than substitute when the issuer has no Heroes tenant (`issuer_not_in_network`, exit `5`).
+- Read the exit code as a statement about what remains in Heroes. Nothing remains on `2`, `4`, `5`, `6`, or `9` — `6` and `9` mean the run created something and then released it. The offer is recorded on `0` and on `8`, where only the document is missing: re-attach with `upload-attachment.ts <event-id> <folder>`. **`7` and `10` mean state may remain and a human has to look**: never rerun the command, because a retry mints a second offer. Check what is actually there with `POST /offers/search` or the Heroes UI, then resume with `--journey-id` or release by hand.
+- `--journey-id` resumes exactly one case: the journey was minted and service creation had not succeeded. The helper refuses any other target, because the batch advance moves every service on the journey, not only the ones it created.
 
 Read `references/offer.md` for the railway, the spec shape, the exit codes, and the worked example.
 
