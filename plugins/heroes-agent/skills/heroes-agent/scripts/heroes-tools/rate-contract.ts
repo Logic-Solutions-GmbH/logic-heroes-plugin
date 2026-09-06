@@ -69,6 +69,8 @@ export interface RateCandidate {
   rule: RateRule;
   sourceEvidence: RateCard['sourceEvidence'];
   missingFacts: string[];
+  /** Business blockers that make stored evidence unsafe for automatic use. */
+  ineligibleReasons: string[];
 }
 
 export interface RateDiscovery {
@@ -708,11 +710,10 @@ export function discoverRate(
   }
   const candidates: RateCandidate[] = [];
   const incomplete: RateCandidate[] = [];
+  const ineligible: RateCandidate[] = [];
   for (const card of rateCatalog.rateCards) {
-    if (card.approval.status !== 'approved') continue;
     for (const rule of card.rules) {
       if (rule.serviceKey !== query.serviceKey) continue;
-      if (card.catalogReference.responseHash !== heroesCatalog.responseHash) continue;
       if (rule.locodes.some((actual) => {
         const sameRole = query.locodes.filter((wanted) => wanted.role === actual.role);
         return sameRole.length > 0 && !sameRole.some((wanted) =>
@@ -720,8 +721,8 @@ export function discoverRate(
         );
       })) continue;
       if (query.timeframes?.some((wanted) => !rule.timeframes.some((actual) =>
-        (!wanted.from || !actual.to || wanted.from <= actual.to) &&
-        (!wanted.to || !actual.from || wanted.to >= actual.from),
+        (!wanted.from || !actual.from || wanted.from >= actual.from) &&
+        (!wanted.to || !actual.to || wanted.to <= actual.to),
       ))) continue;
       if (rule.assetTypes.some((actual) => {
         const wanted = query.assetTypes?.find((item) => item.type === actual.type);
@@ -766,36 +767,49 @@ export function discoverRate(
       else if (rule.strategy?.currentStep && !query.strategy?.currentStep) {
         missingFacts.push(`strategy step ${rule.strategy.currentStep}`);
       }
-      const candidate = { cardId: card.id, rule, sourceEvidence: card.sourceEvidence, missingFacts };
-      if (missingFacts.length) incomplete.push(candidate);
+      const ineligibleReasons: string[] = [];
+      if (card.approval.status !== 'approved') ineligibleReasons.push('rate card is not approved');
+      if (card.catalogReference.responseHash !== heroesCatalog.responseHash) {
+        ineligibleReasons.push('rate card does not reference the active Heroes catalog');
+      }
+      const candidate = {
+        cardId: card.id, rule, sourceEvidence: card.sourceEvidence, missingFacts, ineligibleReasons,
+      };
+      if (ineligibleReasons.length) ineligible.push(candidate);
+      else if (missingFacts.length) incomplete.push(candidate);
       else candidates.push(candidate);
     }
   }
+
+  const evidence = [...candidates, ...incomplete, ...ineligible];
 
   if (incomplete.length) {
     const facts = [...new Set(incomplete.flatMap((candidate) => candidate.missingFacts))];
     return {
       status: 'incomplete', match: false,
       reason: `shipment facts are required: ${facts.join(', ')}`,
-      query, candidates: [...candidates, ...incomplete],
+      query, candidates: evidence,
     };
   }
   if (candidates.length === 0) {
+    const reason = ineligible.length
+      ? `stored rate rules are not automatically usable: ${ineligible.map((candidate) =>
+        `${candidate.cardId}/${candidate.rule.id}: ${candidate.ineligibleReasons.join(', ')}`).join('; ')}`
+      : 'no complete approved current valid rate rule applies';
     return {
-      status: 'none', match: false,
-      reason: 'no complete approved current valid rate rule applies', query, candidates,
+      status: 'none', match: false, reason, query, candidates: evidence,
     };
   }
   if (candidates.length > 1) {
     return {
       status: 'ambiguous', match: false,
       reason: `${candidates.length === 2 ? 'two' : candidates.length} complete approved current valid rate rules apply; human resolution is required`,
-      query, candidates,
+      query, candidates: evidence,
     };
   }
   return {
     status: 'matched', match: true,
     reason: 'one complete approved current valid rate rule applies',
-      query, rate: candidates[0], candidates,
+      query, rate: candidates[0], candidates: evidence,
   };
 }

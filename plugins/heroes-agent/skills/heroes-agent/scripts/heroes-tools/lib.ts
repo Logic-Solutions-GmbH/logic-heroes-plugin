@@ -477,13 +477,14 @@ export function sleep(ms: number): Promise<void> {
 // CSV adapter primitives
 // ---------------------------------------------------------------------------
 
-/** RFC-4180-ish parser: handles quoted fields, escaped `""`, embedded commas/newlines. */
+/** Strict CSV parser: handles quoted fields, escaped `""`, embedded commas/newlines. */
 export function parseCsv(text: string): string[][] {
   if (text.charCodeAt(0) === 0xfeff) text = text.slice(1); // strip BOM
   const rows: string[][] = [];
   let row: string[] = [];
   let field = '';
   let inQuotes = false;
+  let quotedFieldClosed = false;
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (inQuotes) {
@@ -491,9 +492,27 @@ export function parseCsv(text: string): string[][] {
         if (text[i + 1] === '"') {
           field += '"';
           i++;
-        } else inQuotes = false;
+        } else {
+          inQuotes = false;
+          quotedFieldClosed = true;
+        }
       } else field += c;
+    } else if (quotedFieldClosed) {
+      if (c === ',') {
+        row.push(field);
+        field = '';
+        quotedFieldClosed = false;
+      } else if (c === '\n') {
+        row.push(field);
+        rows.push(row);
+        row = [];
+        field = '';
+        quotedFieldClosed = false;
+      } else if (c !== '\r') {
+        throw new Error('CSV contains a character after a closing quote');
+      }
     } else if (c === '"') {
+      if (field !== '') throw new Error('CSV contains a quote inside an unquoted field');
       inQuotes = true;
     } else if (c === ',') {
       row.push(field);
@@ -507,7 +526,8 @@ export function parseCsv(text: string): string[][] {
       field += c;
     }
   }
-  if (field !== '' || row.length > 0) {
+  if (inQuotes) throw new Error('CSV contains an unterminated quoted field');
+  if (field !== '' || row.length > 0 || quotedFieldClosed) {
     row.push(field);
     rows.push(row);
   }
@@ -529,10 +549,17 @@ export function csvToObjects(text: string): Record<string, string>[] {
   const rows = parseCsv(text);
   if (rows.length === 0) return [];
   const header = rows[0].map((h) => h.trim());
+  if (header.some((name) => !name)) throw new Error('CSV contains an empty header');
+  if (new Set(header).size !== header.length) throw new Error('CSV contains duplicate headers');
   return rows
     .slice(1)
     .filter((r) => r.some((c) => (c ?? '').trim() !== ''))
-    .map((r) => Object.fromEntries(header.map((h, i) => [h, r[i] ?? ''])));
+    .map((r, index) => {
+      if (r.slice(header.length).some((value) => value.trim() !== '')) {
+        throw new Error(`CSV row ${index + 2} has non-empty columns beyond its header`);
+      }
+      return Object.fromEntries(header.map((h, i) => [h, r[i] ?? '']));
+    });
 }
 
 /** Serialize objects to CSV in a fixed column order. */

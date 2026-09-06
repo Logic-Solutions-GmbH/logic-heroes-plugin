@@ -32,13 +32,14 @@ Each CSV row describes one charge. Repeat `cardId` and `ruleId` to attach severa
 The importer rejects:
 
 - CSV files with no rate rows;
+- malformed CSV structure, including unterminated quotes and non-empty excess columns;
 - unknown Heroes service keys, asset types, asset subtypes, and roles;
 - missing locations, charges, evidence, or approval data;
 - non-positive amounts, invalid bounds, invalid tiers, and invalid currency codes;
 - conflicting repeated card or rule data;
 - duplicate card IDs already present in the local catalog.
 
-Successfully imported files move to `processed/`. A dry run changes no file.
+Successfully imported files move to `processed/`. A dry run changes no file. Validation, duplicate, and write failures leave the source in `inbox/`.
 
 ## Discover one safe result
 
@@ -47,7 +48,7 @@ A rate is safe for automatic use only when one rule is complete, approved, curre
 - `complete` means the query supplies every applicability fact required by the rule;
 - `approved` means the card has a valid human approval and approved-content hash;
 - `current` means the card references the active Heroes catalog snapshot;
-- `valid` means the requested date or timeframe satisfies the stored timeframe.
+- `valid` means the stored timeframe fully contains the requested date or timeframe.
 
 Use Heroes offer facts in the query:
 
@@ -68,7 +69,7 @@ Exit codes are stable:
 - `4`: the query or catalog is invalid;
 - `2`: the rate index or Heroes catalog snapshot is missing.
 
-The command never selects the cheapest candidate. It reports every required fact absent from the query. Two applicable complete rules are ambiguous and require human resolution. A card whose catalog hash differs from the current Heroes snapshot is stale and cannot support an automatic quote.
+The command never selects the cheapest candidate. It reports every required fact absent from the query. Two applicable complete rules are ambiguous and require human resolution. Stale and unapproved candidates remain visible with source evidence and `ineligibleReasons`, but they cannot support an automatic quote.
 
 ## Export CSV
 

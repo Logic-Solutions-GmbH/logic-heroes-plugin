@@ -296,8 +296,18 @@ test('stale approved cards do not block discovery or a new rate import', async (
       '--index', indexPath, '--catalog', catalogPath, '--json',
     ]);
     assert.equal(draftOnly.code, 3, draftOnly.stderr || draftOnly.stdout);
-    assert.equal(JSON.parse(draftOnly.stdout).status, 'none');
-    assert.match(JSON.parse(draftOnly.stdout).reason, /no complete approved current valid rate rule applies/);
+    const blocked = JSON.parse(draftOnly.stdout);
+    assert.equal(blocked.status, 'none');
+    assert.match(blocked.reason, /stored rate rules are not automatically usable/);
+    assert.equal(blocked.candidates.length, 2);
+    assert.deepEqual(
+      blocked.candidates.find((candidate: { cardId: string }) => candidate.cardId === 'current-card').ineligibleReasons,
+      ['rate card is not approved'],
+    );
+    assert.deepEqual(
+      blocked.candidates.find((candidate: { cardId: string }) => candidate.cardId === 'stale-card').ineligibleReasons,
+      ['rate card does not reference the active Heroes catalog'],
+    );
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }
@@ -548,6 +558,23 @@ test('rate import rejects a CSV with no rate rows and keeps its source recoverab
     assert.equal(existsSync(source), true);
     assert.equal(existsSync(indexPath), false);
     assert.equal(existsSync(join(processed, 'header-only.csv')), false);
+
+    writeFileSync(
+      source,
+      [
+        'cardId,ruleId,serviceKey,origin,destination,assetType,chargeKey,amount,currency,basis,sourceRef,approvalStatus',
+        '"card-1,rule-1,fcl_freight_forwarding,NLRTM,USNYC,container,freight,8000,USD,container,REF-1,draft',
+      ].join('\n'),
+    );
+    const malformed = await runTool(workspace, [
+      'ingest-rates.ts', inbox, '--catalog', catalogPath, '--index', indexPath,
+      '--processed', processed,
+    ]);
+    assert.equal(malformed.code, 1, malformed.stdout + malformed.stderr);
+    assert.match(malformed.stderr, /unterminated quoted field/i);
+    assert.equal(existsSync(source), true);
+    assert.equal(existsSync(indexPath), false);
+    assert.equal(existsSync(join(processed, 'header-only.csv')), false);
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }
@@ -602,6 +629,41 @@ test('rate import dry-run writes nothing and duplicate retries keep their source
     assert.match(duplicate.stderr, /Duplicate rate card id/);
     assert.equal(existsSync(source), true);
     assert.equal(JSON.parse(readFileSync(indexPath, 'utf8')).rateCards.length, 1);
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test('rate import keeps its source recoverable when the index cannot be written', async () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'heroes-rate-write-failure-'));
+  try {
+    const catalogPath = join(workspace, 'heroes-catalog.json');
+    writeHeroesCatalog(catalogPath, {
+      schemaVersion: '1.0', fetchedAt: '2026-08-13T00:00:00Z',
+      ...catalogVocabulary,
+      services: [{ serviceKey: 'fcl_freight_forwarding' }],
+      assetTypes: [{ code: 'container' }],
+      assetSubtypes: [{ assetType: 'container', subtype: '40HC' }],
+    });
+    const inbox = join(workspace, 'inbox');
+    const processed = join(workspace, 'processed');
+    mkdirSync(inbox);
+    const source = join(inbox, 'rates.csv');
+    writeFileSync(source, [
+      'cardId,ruleId,serviceKey,origin,destination,assetType,assetSubtype,validFrom,validTo,chargeKey,amount,currency,basis,sourceRef,approvalStatus',
+      'card-1,rule-1,fcl_freight_forwarding,NLRTM,USNYC,container,40HC,2026-08-01,2026-12-31,freight,8000,USD,container,REF-1,draft',
+    ].join('\n'));
+    const blockedParent = join(workspace, 'not-a-directory');
+    writeFileSync(blockedParent, 'blocks index directory creation');
+
+    const result = await runTool(workspace, [
+      'ingest-rates.ts', inbox, '--catalog', catalogPath,
+      '--index', join(blockedParent, 'rate-catalog.json'), '--processed', processed,
+    ]);
+
+    assert.equal(result.code, 1, result.stdout + result.stderr);
+    assert.equal(existsSync(source), true);
+    assert.equal(existsSync(processed), false);
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }
@@ -791,6 +853,17 @@ test('rate discovery reports required offer facts instead of treating a partial 
       '--index', indexPath, '--catalog', catalogPath, '--json',
     ]);
     assert.equal(outsideDeparture.code, 3, outsideDeparture.stderr || outsideDeparture.stdout);
+
+    const partialValidity = await runTool(workspace, [
+      'find-rate.ts', '--service-key', 'fcl_freight_forwarding',
+      '--origin', 'NLRTM', '--location', 'GBFXT:transshipment', '--dest', 'USNYC',
+      '--timeframe', '2026-07-15:2026-08-15', '--asset-type', 'container', '--asset-subtype', '40HC',
+      '--asset', 'truck', '--participant', 'carrier-a:assignee',
+      '--strategy', 'OFFER', '--strategy-step', 'PUBLISHED',
+      '--index', indexPath, '--catalog', catalogPath, '--json',
+    ]);
+    assert.equal(partialValidity.code, 3, partialValidity.stderr || partialValidity.stdout);
+    assert.equal(JSON.parse(partialValidity.stdout).status, 'none');
 
     const wrongParticipant = await runTool(workspace, [
       'find-rate.ts', '--service-key', 'fcl_freight_forwarding',
