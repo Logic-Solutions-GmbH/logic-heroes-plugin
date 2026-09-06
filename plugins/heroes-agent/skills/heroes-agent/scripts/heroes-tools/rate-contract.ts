@@ -73,13 +73,40 @@ export interface RateCandidate {
   ineligibleReasons: string[];
 }
 
+export interface RateCandidateEvidence {
+  cardId: string;
+  ruleId: string;
+  sourceReferences: { sourceFile: string; sourceRef: string }[];
+  missingFacts: string[];
+  ineligibleReasons: string[];
+}
+
 export interface RateDiscovery {
   status: 'matched' | 'none' | 'incomplete' | 'ambiguous' | 'invalid';
   match: boolean;
   reason: string;
   query: RateDiscoveryQuery;
   rate?: RateCandidate;
-  candidates: RateCandidate[];
+  candidates: RateCandidateEvidence[];
+  candidateTotal: number;
+  candidatesTruncated: boolean;
+}
+
+export const RATE_DISCOVERY_EVIDENCE_LIMIT = 20;
+
+function boundedCandidateEvidence(candidates: RateCandidate[]) {
+  const evidence = candidates.map((candidate): RateCandidateEvidence => ({
+    cardId: candidate.cardId,
+    ruleId: candidate.rule.id,
+    sourceReferences: candidate.sourceEvidence.map(({ sourceFile, sourceRef }) => ({ sourceFile, sourceRef })),
+    missingFacts: candidate.missingFacts,
+    ineligibleReasons: candidate.ineligibleReasons,
+  })).sort((a, b) => `${a.cardId}\u0000${a.ruleId}`.localeCompare(`${b.cardId}\u0000${b.ruleId}`));
+  return {
+    candidates: evidence.slice(0, RATE_DISCOVERY_EVIDENCE_LIMIT),
+    candidateTotal: evidence.length,
+    candidatesTruncated: evidence.length > RATE_DISCOVERY_EVIDENCE_LIMIT,
+  };
 }
 
 export const RATE_CSV_COLUMNS = [
@@ -669,7 +696,10 @@ export function discoverRate(
 ): RateDiscovery {
   const issues = validateRateCatalog(rateCatalog, heroesCatalog);
   if (issues.length) {
-    return { status: 'invalid', match: false, reason: issues.join('; '), query, candidates: [] };
+    return {
+      status: 'invalid', match: false, reason: issues.join('; '), query,
+      candidates: [], candidateTotal: 0, candidatesTruncated: false,
+    };
   }
   const index = catalogIndex(heroesCatalog);
   const queryIssues: string[] = [];
@@ -706,7 +736,10 @@ export function discoverRate(
     }
   }
   if (queryIssues.length) {
-    return { status: 'invalid', match: false, reason: queryIssues.join('; '), query, candidates: [] };
+    return {
+      status: 'invalid', match: false, reason: queryIssues.join('; '), query,
+      candidates: [], candidateTotal: 0, candidatesTruncated: false,
+    };
   }
   const candidates: RateCandidate[] = [];
   const incomplete: RateCandidate[] = [];
@@ -782,34 +815,38 @@ export function discoverRate(
   }
 
   const evidence = [...candidates, ...incomplete, ...ineligible];
+  const boundedEvidence = boundedCandidateEvidence(evidence);
 
   if (incomplete.length) {
     const facts = [...new Set(incomplete.flatMap((candidate) => candidate.missingFacts))];
+    const displayedFacts = facts.slice(0, RATE_DISCOVERY_EVIDENCE_LIMIT);
+    const factSuffix = facts.length > displayedFacts.length
+      ? `, and ${facts.length - displayedFacts.length} more`
+      : '';
     return {
       status: 'incomplete', match: false,
-      reason: `shipment facts are required: ${facts.join(', ')}`,
-      query, candidates: evidence,
+      reason: `shipment facts are required: ${displayedFacts.join(', ')}${factSuffix}`,
+      query, ...boundedEvidence,
     };
   }
   if (candidates.length === 0) {
     const reason = ineligible.length
-      ? `stored rate rules are not automatically usable: ${ineligible.map((candidate) =>
-        `${candidate.cardId}/${candidate.rule.id}: ${candidate.ineligibleReasons.join(', ')}`).join('; ')}`
+      ? `${ineligible.length} stored rate rule${ineligible.length === 1 ? ' is' : 's are'} not automatically usable; inspect candidate evidence`
       : 'no complete approved current valid rate rule applies';
     return {
-      status: 'none', match: false, reason, query, candidates: evidence,
+      status: 'none', match: false, reason, query, ...boundedEvidence,
     };
   }
   if (candidates.length > 1) {
     return {
       status: 'ambiguous', match: false,
       reason: `${candidates.length === 2 ? 'two' : candidates.length} complete approved current valid rate rules apply; human resolution is required`,
-      query, candidates: evidence,
+      query, ...boundedEvidence,
     };
   }
   return {
     status: 'matched', match: true,
     reason: 'one complete approved current valid rate rule applies',
-      query, rate: candidates[0], candidates: evidence,
+      query, rate: candidates[0], ...boundedEvidence,
   };
 }

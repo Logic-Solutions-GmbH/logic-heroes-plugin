@@ -390,6 +390,9 @@ test('operator imports diverse CSV rates into one versioned Heroes-shaped catalo
       const parsed = JSON.parse(discovery.stdout);
       assert.equal(parsed.status, 'matched');
       assert.equal(parsed.rate.rule.serviceKey, serviceKey);
+      assert.equal(parsed.candidateTotal, 1);
+      assert.equal(parsed.candidatesTruncated, false);
+      assert.equal(parsed.candidates[0].rule, undefined);
     }
     for (const mismatchArgs of [
       ['--origin', 'NLRTM', '--dest', 'DEHAM', '--asset-type', 'container', '--asset-subtype', '40HC'],
@@ -522,6 +525,31 @@ test('rate discovery blocks two approved applicable rules instead of choosing th
     assert.equal(unresolved.code, 3, unresolved.stderr || unresolved.stdout);
     assert.equal(JSON.parse(unresolved.stdout).status, 'incomplete');
     assert.match(JSON.parse(unresolved.stdout).reason, /participant carrier-a:assignee/);
+
+    writeFileSync(indexPath, JSON.stringify({
+      schemaVersion: '1.0',
+      rateCards: Array.from({ length: 25 }, (_, index) =>
+        card(`filed-${String(index).padStart(2, '0')}`, String(8000 + index))),
+    }));
+    const bounded = await runTool(workspace, [
+      'find-rate.ts', '--service-key', 'fcl_freight_forwarding', '--origin', 'NLRTM', '--dest', 'USNYC',
+      '--asset-type', 'container', '--asset-subtype', '40HC', '--date', '2026-09-01',
+      '--index', indexPath, '--catalog', catalogPath, '--json',
+    ]);
+    assert.equal(bounded.code, 3, bounded.stderr || bounded.stdout);
+    const boundedDiscovery = JSON.parse(bounded.stdout);
+    assert.equal(boundedDiscovery.status, 'ambiguous');
+    assert.equal(boundedDiscovery.candidateTotal, 25);
+    assert.equal(boundedDiscovery.candidatesTruncated, true);
+    assert.equal(boundedDiscovery.candidates.length, 20);
+    assert.deepEqual(Object.keys(boundedDiscovery.candidates[0]).sort(), [
+      'cardId', 'ineligibleReasons', 'missingFacts', 'ruleId', 'sourceReferences',
+    ]);
+    assert.deepEqual(boundedDiscovery.candidates[0].sourceReferences, [
+      { sourceFile: 'filed-00.csv', sourceRef: 'filed-00' },
+    ]);
+    assert.equal(boundedDiscovery.candidates[0].rule, undefined);
+    assert.equal(boundedDiscovery.candidates[0].sourceEvidence, undefined);
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }
@@ -679,8 +707,11 @@ test('rate discovery returns exit 2 when its configured store is missing', async
     ]);
 
     assert.equal(result.code, 2, result.stderr || result.stdout);
-    assert.equal(JSON.parse(result.stdout).match, false);
-    assert.match(JSON.parse(result.stdout).reason, /rate index and Heroes catalog are required/);
+    const missingStore = JSON.parse(result.stdout);
+    assert.equal(missingStore.match, false);
+    assert.equal(missingStore.candidateTotal, 0);
+    assert.equal(missingStore.candidatesTruncated, false);
+    assert.match(missingStore.reason, /rate index and Heroes catalog are required/);
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }
@@ -704,7 +735,10 @@ test('rate discovery returns invalid exit 4 for malformed canonical JSON', async
       '--index', indexPath, '--catalog', catalogPath, '--json',
     ]);
     assert.equal(result.code, 4, result.stderr || result.stdout);
-    assert.equal(JSON.parse(result.stdout).status, 'invalid');
+    const malformed = JSON.parse(result.stdout);
+    assert.equal(malformed.status, 'invalid');
+    assert.equal(malformed.candidateTotal, 0);
+    assert.equal(malformed.candidatesTruncated, false);
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }

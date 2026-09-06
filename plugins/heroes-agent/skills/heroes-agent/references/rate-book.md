@@ -71,6 +71,8 @@ Exit codes are stable:
 
 The command never selects the cheapest candidate. It reports every required fact absent from the query. Two applicable complete rules are ambiguous and require human resolution. Stale and unapproved candidates remain visible with source evidence and `ineligibleReasons`, but they cannot support an automatic quote.
 
+JSON output contains at most 20 compact candidate summaries. `candidateTotal` reports the full count, and `candidatesTruncated` reports omitted summaries. Each summary contains card and rule IDs, source references, missing facts, and eligibility blockers. Only the single safe `rate` result contains the full rate rule needed for a quote.
+
 ## Export CSV
 
 Run:
@@ -86,3 +88,5 @@ The default output is `self/rate-book/index/rate-catalog.csv`. It contains one r
 Arbitrary-source extraction is not part of this contract slice. An agent can later extract pasted text, Excel, PDF, email, or OCR input into a reviewable draft. A human must approve that draft before import.
 
 The local rate catalog is provider-owned pricing evidence. Heroes remains authoritative for shared workflow and legal state.
+
+This semantic contract does not prescribe a Supabase table structure. A future setup must inspect the user's project and record an agreed mapping.
