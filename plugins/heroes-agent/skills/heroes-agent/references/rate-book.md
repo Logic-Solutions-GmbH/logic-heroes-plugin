@@ -31,6 +31,7 @@ Each CSV row describes one charge. Repeat `cardId` and `ruleId` to attach severa
 
 The importer rejects:
 
+- CSV files with no rate rows;
 - unknown Heroes service keys, asset types, asset subtypes, and roles;
 - missing locations, charges, evidence, or approval data;
 - non-positive amounts, invalid bounds, invalid tiers, and invalid currency codes;
@@ -40,6 +41,13 @@ The importer rejects:
 Successfully imported files move to `processed/`. A dry run changes no file.
 
 ## Discover one safe result
+
+A rate is safe for automatic use only when one rule is complete, approved, current, and valid:
+
+- `complete` means the query supplies every applicability fact required by the rule;
+- `approved` means the card has a valid human approval and approved-content hash;
+- `current` means the card references the active Heroes catalog snapshot;
+- `valid` means the requested date or timeframe satisfies the stored timeframe.
 
 Use Heroes offer facts in the query:
 
@@ -55,9 +63,9 @@ For a single-location service, use `--location <code>:<role>`. Repeat `--locatio
 
 Exit codes are stable:
 
-- `0`: exactly one complete, approved, current rule applies;
-- `3`: no approved current rule applies;
-- `4`: the query is invalid, required facts are missing, the result is ambiguous, or the catalog is invalid;
+- `0`: exactly one complete, approved, current, valid rule applies;
+- `3`: no automatic result is available; no match, missing facts, and ambiguity require human judgment;
+- `4`: the query or catalog is invalid;
 - `2`: the rate index or Heroes catalog snapshot is missing.
 
 The command never selects the cheapest candidate. It reports every required fact absent from the query. Two applicable complete rules are ambiguous and require human resolution. A card whose catalog hash differs from the current Heroes snapshot is stale and cannot support an automatic quote.

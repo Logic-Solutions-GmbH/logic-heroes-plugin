@@ -289,6 +289,15 @@ test('stale approved cards do not block discovery or a new rate import', async (
     const cards = JSON.parse(readFileSync(indexPath, 'utf8')).rateCards;
     assert.deepEqual(cards.map((card: { id: string }) => card.id), ['current-card', 'stale-card']);
     assert.equal(cards[0].catalogReference.responseHash, currentHash);
+
+    const draftOnly = await runTool(workspace, [
+      'find-rate.ts', '--service-key', 'fcl_freight_forwarding', '--origin', 'NLRTM',
+      '--asset-type', 'container', '--asset-subtype', '40HC',
+      '--index', indexPath, '--catalog', catalogPath, '--json',
+    ]);
+    assert.equal(draftOnly.code, 3, draftOnly.stderr || draftOnly.stdout);
+    assert.equal(JSON.parse(draftOnly.stdout).status, 'none');
+    assert.match(JSON.parse(draftOnly.stdout).reason, /no complete approved current valid rate rule applies/);
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }
@@ -371,6 +380,18 @@ test('operator imports diverse CSV rates into one versioned Heroes-shaped catalo
       const parsed = JSON.parse(discovery.stdout);
       assert.equal(parsed.status, 'matched');
       assert.equal(parsed.rate.rule.serviceKey, serviceKey);
+    }
+    for (const mismatchArgs of [
+      ['--origin', 'NLRTM', '--dest', 'DEHAM', '--asset-type', 'container', '--asset-subtype', '40HC'],
+      ['--origin', 'NLRTM', '--dest', 'USNYC', '--asset-type', 'truck'],
+      ['--origin', 'NLRTM', '--dest', 'USNYC', '--asset-type', 'container', '--asset-subtype', '40HC', '--date', '2027-01-01'],
+    ]) {
+      const mismatch = await runTool(workspace, [
+        'find-rate.ts', '--service-key', 'fcl_freight_forwarding', ...mismatchArgs,
+        '--index', indexPath, '--catalog', catalogPath, '--json',
+      ]);
+      assert.equal(mismatch.code, 3, mismatch.stderr || mismatch.stdout);
+      assert.equal(JSON.parse(mismatch.stdout).status, 'none');
     }
     const invalidQuery = await runTool(workspace, [
       'find-rate.ts', '--service-key', 'fcl_freight_forwarding', '--location', 'NLRTM:invented',
@@ -468,13 +489,13 @@ test('rate discovery blocks two approved applicable rules instead of choosing th
       '--index', indexPath, '--catalog', catalogPath, '--json',
     ]);
 
-    assert.equal(result.code, 4, result.stderr || result.stdout);
+    assert.equal(result.code, 3, result.stderr || result.stdout);
     const discovery = JSON.parse(result.stdout);
     assert.equal(discovery.status, 'ambiguous');
     assert.equal(discovery.match, false);
     assert.equal(discovery.candidates.length, 2);
     assert.equal(discovery.best, undefined);
-    assert.match(discovery.reason, /two approved rate rules apply/i);
+    assert.match(discovery.reason, /two complete approved current valid rate rules apply/i);
 
     const conditional = card('filed-b', '7900');
     conditional.rules[0].participants = [{ tenantKey: 'carrier-a', role: 'assignee' }];
@@ -488,9 +509,116 @@ test('rate discovery blocks two approved applicable rules instead of choosing th
       '--asset-subtype', '40HC', '--date', '2026-09-01',
       '--index', indexPath, '--catalog', catalogPath, '--json',
     ]);
-    assert.equal(unresolved.code, 4, unresolved.stderr || unresolved.stdout);
+    assert.equal(unresolved.code, 3, unresolved.stderr || unresolved.stdout);
     assert.equal(JSON.parse(unresolved.stdout).status, 'incomplete');
     assert.match(JSON.parse(unresolved.stdout).reason, /participant carrier-a:assignee/);
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test('rate import rejects a CSV with no rate rows and keeps its source recoverable', async () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'heroes-rate-empty-import-'));
+  try {
+    const catalogPath = join(workspace, 'heroes-catalog.json');
+    writeHeroesCatalog(catalogPath, {
+      schemaVersion: '1.0', fetchedAt: '2026-08-13T00:00:00Z',
+      ...catalogVocabulary,
+      services: [{ serviceKey: 'fcl_freight_forwarding' }],
+      assetTypes: [{ code: 'container' }],
+      assetSubtypes: [{ assetType: 'container', subtype: '40HC' }],
+    });
+    const inbox = join(workspace, 'inbox');
+    const processed = join(workspace, 'processed');
+    const indexPath = join(workspace, 'rate-catalog.json');
+    mkdirSync(inbox);
+    const source = join(inbox, 'header-only.csv');
+    writeFileSync(
+      source,
+      'cardId,ruleId,serviceKey,origin,destination,assetType,chargeKey,amount,currency,basis,sourceRef,approvalStatus,approvedBy,approvedAt\n',
+    );
+
+    const result = await runTool(workspace, [
+      'ingest-rates.ts', inbox, '--catalog', catalogPath, '--index', indexPath,
+      '--processed', processed,
+    ]);
+
+    assert.equal(result.code, 1, result.stdout + result.stderr);
+    assert.match(result.stderr, /no rate rows/i);
+    assert.equal(existsSync(source), true);
+    assert.equal(existsSync(indexPath), false);
+    assert.equal(existsSync(join(processed, 'header-only.csv')), false);
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test('rate import dry-run writes nothing and duplicate retries keep their source recoverable', async () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'heroes-rate-dry-run-'));
+  try {
+    const catalogPath = join(workspace, 'heroes-catalog.json');
+    writeHeroesCatalog(catalogPath, {
+      schemaVersion: '1.0', fetchedAt: '2026-08-13T00:00:00Z',
+      ...catalogVocabulary,
+      services: [{ serviceKey: 'fcl_freight_forwarding' }],
+      assetTypes: [{ code: 'container' }],
+      assetSubtypes: [{ assetType: 'container', subtype: '40HC' }],
+    });
+    const inbox = join(workspace, 'inbox');
+    const processed = join(workspace, 'processed');
+    const indexPath = join(workspace, 'rate-catalog.json');
+    mkdirSync(inbox);
+    const source = join(inbox, 'rates.csv');
+    const csv = [
+      'cardId,ruleId,serviceKey,origin,destination,assetType,assetSubtype,validFrom,validTo,chargeKey,amount,currency,basis,sourceRef,approvalStatus,approvedBy,approvedAt',
+      'card-1,rule-1,fcl_freight_forwarding,NLRTM,USNYC,container,40HC,2026-08-01,2026-12-31,freight,8000,USD,container,REF-1,draft,,,',
+    ].join('\n');
+    writeFileSync(source, csv);
+
+    const dryRun = await runTool(workspace, [
+      'ingest-rates.ts', inbox, '--catalog', catalogPath, '--index', indexPath,
+      '--processed', processed, '--dry-run',
+    ]);
+    assert.equal(dryRun.code, 0, dryRun.stderr || dryRun.stdout);
+    assert.equal(existsSync(source), true);
+    assert.equal(existsSync(indexPath), false);
+    assert.equal(existsSync(processed), false);
+
+    const ingest = await runTool(workspace, [
+      'ingest-rates.ts', inbox, '--catalog', catalogPath, '--index', indexPath,
+      '--processed', processed,
+    ]);
+    assert.equal(ingest.code, 0, ingest.stderr || ingest.stdout);
+    assert.equal(existsSync(source), false);
+    assert.equal(existsSync(join(processed, 'rates.csv')), true);
+    assert.equal(JSON.parse(readFileSync(indexPath, 'utf8')).rateCards.length, 1);
+
+    writeFileSync(source, csv);
+    const duplicate = await runTool(workspace, [
+      'ingest-rates.ts', inbox, '--catalog', catalogPath, '--index', indexPath,
+      '--processed', processed,
+    ]);
+    assert.equal(duplicate.code, 1, duplicate.stdout + duplicate.stderr);
+    assert.match(duplicate.stderr, /Duplicate rate card id/);
+    assert.equal(existsSync(source), true);
+    assert.equal(JSON.parse(readFileSync(indexPath, 'utf8')).rateCards.length, 1);
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test('rate discovery returns exit 2 when its configured store is missing', async () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'heroes-rate-no-store-'));
+  try {
+    const result = await runTool(workspace, [
+      'find-rate.ts', '--service-key', 'fcl_freight_forwarding',
+      '--index', join(workspace, 'missing-rate-catalog.json'),
+      '--catalog', join(workspace, 'missing-heroes-catalog.json'), '--json',
+    ]);
+
+    assert.equal(result.code, 2, result.stderr || result.stdout);
+    assert.equal(JSON.parse(result.stdout).match, false);
+    assert.match(JSON.parse(result.stdout).reason, /rate index and Heroes catalog are required/);
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }
@@ -632,7 +760,7 @@ test('rate discovery reports required offer facts instead of treating a partial 
       'find-rate.ts', '--service-key', 'fcl_freight_forwarding', '--origin', 'NLRTM', '--dest', 'USNYC',
       '--index', indexPath, '--catalog', catalogPath, '--json',
     ]);
-    assert.equal(result.code, 4, result.stderr || result.stdout);
+    assert.equal(result.code, 3, result.stderr || result.stdout);
     const discovery = JSON.parse(result.stdout);
     assert.equal(discovery.status, 'incomplete');
     assert.match(discovery.reason, /location GBFXT:transshipment/);
@@ -663,6 +791,17 @@ test('rate discovery reports required offer facts instead of treating a partial 
       '--index', indexPath, '--catalog', catalogPath, '--json',
     ]);
     assert.equal(outsideDeparture.code, 3, outsideDeparture.stderr || outsideDeparture.stdout);
+
+    const wrongParticipant = await runTool(workspace, [
+      'find-rate.ts', '--service-key', 'fcl_freight_forwarding',
+      '--origin', 'NLRTM', '--location', 'GBFXT:transshipment', '--dest', 'USNYC',
+      '--timeframe', '2026-09-01:2026-09-15', '--asset-type', 'container', '--asset-subtype', '40HC',
+      '--asset', 'truck', '--participant', 'other:assignee',
+      '--strategy', 'OFFER', '--strategy-step', 'PUBLISHED',
+      '--index', indexPath, '--catalog', catalogPath, '--json',
+    ]);
+    assert.equal(wrongParticipant.code, 3, wrongParticipant.stderr || wrongParticipant.stdout);
+    assert.equal(JSON.parse(wrongParticipant.stdout).status, 'none');
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }

@@ -451,6 +451,7 @@ export function importRateCsv(
   catalog: HeroesRateCatalog,
 ): RateCatalog {
   const rows = csvToObjects(csv);
+  if (rows.length === 0) throw new Error(`${sourceFile}: no rate rows`);
   const { serviceKeys, assetTypes, assetSubtypes, locationRoles } = catalogIndex(catalog);
   const sourceHash = createHash('sha256').update(csv).digest('hex');
   const cards = new Map<string, RateCard>();
@@ -724,6 +725,7 @@ export function discoverRate(
       ))) continue;
       if (rule.assetTypes.some((actual) => {
         const wanted = query.assetTypes?.find((item) => item.type === actual.type);
+        if (query.assetTypes?.length && !wanted) return true;
         return wanted && actual.subtypes.length > 0 && wanted.subtypes.length > 0 &&
           !wanted.subtypes.some((subtype) => actual.subtypes.includes(subtype));
       })) continue;
@@ -779,17 +781,21 @@ export function discoverRate(
     };
   }
   if (candidates.length === 0) {
-    return { status: 'none', match: false, reason: 'no approved current rate rule applies', query, candidates };
+    return {
+      status: 'none', match: false,
+      reason: 'no complete approved current valid rate rule applies', query, candidates,
+    };
   }
   if (candidates.length > 1) {
     return {
       status: 'ambiguous', match: false,
-      reason: `${candidates.length === 2 ? 'two' : candidates.length} approved rate rules apply; human resolution is required`,
+      reason: `${candidates.length === 2 ? 'two' : candidates.length} complete approved current valid rate rules apply; human resolution is required`,
       query, candidates,
     };
   }
   return {
-    status: 'matched', match: true, reason: 'one approved current rate rule applies',
+    status: 'matched', match: true,
+    reason: 'one complete approved current valid rate rule applies',
       query, rate: candidates[0], candidates,
   };
 }

@@ -117,5 +117,6 @@ run(async () => {
     }
   }
   console.log(JSON.stringify(result, null, 2));
-  process.exit(result.status === 'matched' ? 0 : result.status === 'none' ? 3 : 4);
+  // Exit 3 is a valid business decision result. Exit 4 is reserved for invalid input.
+  process.exit(result.status === 'matched' ? 0 : result.status === 'invalid' ? 4 : 3);
 });
