@@ -721,8 +721,8 @@ export function discoverRate(
         );
       })) continue;
       if (query.timeframes?.some((wanted) => !rule.timeframes.some((actual) =>
-        (!wanted.from || !actual.from || wanted.from >= actual.from) &&
-        (!wanted.to || !actual.to || wanted.to <= actual.to),
+        (wanted.from ? !actual.from || wanted.from >= actual.from : !actual.from) &&
+        (wanted.to ? !actual.to || wanted.to <= actual.to : !actual.to),
       ))) continue;
       if (rule.assetTypes.some((actual) => {
         const wanted = query.assetTypes?.find((item) => item.type === actual.type);

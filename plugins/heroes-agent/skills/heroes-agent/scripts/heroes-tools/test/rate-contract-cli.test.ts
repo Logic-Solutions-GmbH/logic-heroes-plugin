@@ -854,16 +854,18 @@ test('rate discovery reports required offer facts instead of treating a partial 
     ]);
     assert.equal(outsideDeparture.code, 3, outsideDeparture.stderr || outsideDeparture.stdout);
 
-    const partialValidity = await runTool(workspace, [
-      'find-rate.ts', '--service-key', 'fcl_freight_forwarding',
-      '--origin', 'NLRTM', '--location', 'GBFXT:transshipment', '--dest', 'USNYC',
-      '--timeframe', '2026-07-15:2026-08-15', '--asset-type', 'container', '--asset-subtype', '40HC',
-      '--asset', 'truck', '--participant', 'carrier-a:assignee',
-      '--strategy', 'OFFER', '--strategy-step', 'PUBLISHED',
-      '--index', indexPath, '--catalog', catalogPath, '--json',
-    ]);
-    assert.equal(partialValidity.code, 3, partialValidity.stderr || partialValidity.stdout);
-    assert.equal(JSON.parse(partialValidity.stdout).status, 'none');
+    for (const timeframe of ['2026-07-15:2026-08-15', '2027-01-01:', ':2026-07-01']) {
+      const invalidValidity = await runTool(workspace, [
+        'find-rate.ts', '--service-key', 'fcl_freight_forwarding',
+        '--origin', 'NLRTM', '--location', 'GBFXT:transshipment', '--dest', 'USNYC',
+        '--timeframe', timeframe, '--asset-type', 'container', '--asset-subtype', '40HC',
+        '--asset', 'truck', '--participant', 'carrier-a:assignee',
+        '--strategy', 'OFFER', '--strategy-step', 'PUBLISHED',
+        '--index', indexPath, '--catalog', catalogPath, '--json',
+      ]);
+      assert.equal(invalidValidity.code, 3, invalidValidity.stderr || invalidValidity.stdout);
+      assert.equal(JSON.parse(invalidValidity.stdout).status, 'none');
+    }
 
     const wrongParticipant = await runTool(workspace, [
       'find-rate.ts', '--service-key', 'fcl_freight_forwarding',
