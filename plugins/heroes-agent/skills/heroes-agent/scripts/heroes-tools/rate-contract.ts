@@ -76,6 +76,7 @@ export interface RateCandidate {
 export interface RateCandidateEvidence {
   cardId: string;
   ruleId: string;
+  class: 'eligible' | 'incomplete' | 'ineligible';
   sourceReferences: { sourceFile: string; sourceRef: string }[];
   missingFacts: string[];
   ineligibleReasons: string[];
@@ -98,10 +99,18 @@ function boundedCandidateEvidence(candidates: RateCandidate[]) {
   const evidence = candidates.map((candidate): RateCandidateEvidence => ({
     cardId: candidate.cardId,
     ruleId: candidate.rule.id,
+    class: candidate.ineligibleReasons.length
+      ? 'ineligible'
+      : candidate.missingFacts.length ? 'incomplete' : 'eligible',
     sourceReferences: candidate.sourceEvidence.map(({ sourceFile, sourceRef }) => ({ sourceFile, sourceRef })),
     missingFacts: candidate.missingFacts,
     ineligibleReasons: candidate.ineligibleReasons,
-  })).sort((a, b) => `${a.cardId}\u0000${a.ruleId}`.localeCompare(`${b.cardId}\u0000${b.ruleId}`));
+  })).sort((a, b) => {
+    const classOrder = { eligible: 0, incomplete: 1, ineligible: 2 } as const;
+    if (classOrder[a.class] !== classOrder[b.class]) return classOrder[a.class] - classOrder[b.class];
+    if (a.cardId !== b.cardId) return a.cardId < b.cardId ? -1 : 1;
+    return a.ruleId === b.ruleId ? 0 : a.ruleId < b.ruleId ? -1 : 1;
+  });
   return {
     candidates: evidence.slice(0, RATE_DISCOVERY_EVIDENCE_LIMIT),
     candidateTotal: evidence.length,
@@ -406,6 +415,9 @@ export function validateRateCatalog(
       for (const location of rule.locodes ?? []) {
         if (!location.code) issues.push(`${ruleAt}: location code is required`);
         if (!locationRoles.has(location.role)) issues.push(`${ruleAt}: unknown Heroes location role ${location.role}`);
+      }
+      if (!Array.isArray(rule.timeframes) || rule.timeframes.length === 0) {
+        issues.push(`${ruleAt}: at least one timeframe is required`);
       }
       for (const asset of rule.assetTypes ?? []) {
         if (!assetTypes.has(asset.type)) issues.push(`${ruleAt}: unknown Heroes assetType ${asset.type}`);

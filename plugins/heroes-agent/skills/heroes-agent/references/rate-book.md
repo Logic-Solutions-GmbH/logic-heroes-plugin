@@ -29,6 +29,8 @@ Each initial CSV row must be `draft`. The explicit `--approve-by` action records
 
 Each CSV row describes one charge. Repeat `cardId` and `ruleId` to attach several charges to one rule. A charge uses either `amount` or `tiersJson`. It can also use `minimum` and `maximum`. The simple columns support common locations, validity, and one asset. The JSON columns preserve all timeframes, source evidence, and nested applicability during export and re-import.
 
+Every rate rule must contain at least one validity timeframe. An empty `timeframes` array is invalid.
+
 The importer rejects:
 
 - CSV files with no rate rows;
@@ -71,7 +73,7 @@ Exit codes are stable:
 
 The command never selects the cheapest candidate. It reports every required fact absent from the query. Two applicable complete rules are ambiguous and require human resolution. Stale and unapproved candidates remain visible with source evidence and `ineligibleReasons`, but they cannot support an automatic quote.
 
-JSON output contains at most 20 compact candidate summaries. `candidateTotal` reports the full count, and `candidatesTruncated` reports omitted summaries. Each summary contains card and rule IDs, source references, missing facts, and eligibility blockers. Only the single safe `rate` result contains the full rate rule needed for a quote.
+JSON output contains at most 20 compact candidate summaries. `candidateTotal` reports the full count, and `candidatesTruncated` reports omitted summaries. Each summary contains its eligibility class, card and rule IDs, source references, missing facts, and eligibility blockers. Eligible summaries appear before incomplete and ineligible summaries. Only the single safe `rate` result contains the full rate rule needed for a quote.
 
 ## Export CSV
 

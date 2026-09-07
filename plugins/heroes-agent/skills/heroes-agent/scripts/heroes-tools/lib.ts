@@ -553,12 +553,13 @@ export function csvToObjects(text: string): Record<string, string>[] {
   if (new Set(header).size !== header.length) throw new Error('CSV contains duplicate headers');
   return rows
     .slice(1)
-    .filter((r) => r.some((c) => (c ?? '').trim() !== ''))
-    .map((r, index) => {
-      if (r.slice(header.length).some((value) => value.trim() !== '')) {
-        throw new Error(`CSV row ${index + 2} has non-empty columns beyond its header`);
+    .map((row, index) => ({ row, rowNumber: index + 2 }))
+    .filter(({ row }) => row.some((cell) => (cell ?? '').trim() !== ''))
+    .map(({ row, rowNumber }) => {
+      if (row.slice(header.length).some((value) => value.trim() !== '')) {
+        throw new Error(`CSV row ${rowNumber} has non-empty columns beyond its header`);
       }
-      return Object.fromEntries(header.map((h, i) => [h, r[i] ?? '']));
+      return Object.fromEntries(header.map((h, i) => [h, row[i] ?? '']));
     });
 }
 

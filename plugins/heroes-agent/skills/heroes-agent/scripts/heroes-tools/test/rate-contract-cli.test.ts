@@ -255,7 +255,8 @@ test('stale approved cards do not block discovery or a new rate import', async (
       id: 'stale-card', journeyType: 'OFFER',
       rules: [{
         id: 'stale-rule', serviceKey: 'fcl_freight_forwarding',
-        locodes: [{ code: 'NLRTM', role: 'origin' }], timeframes: [],
+        locodes: [{ code: 'NLRTM', role: 'origin' }],
+        timeframes: [{ from: '2026-08-01', to: '2026-12-31' }],
         assetTypes: [{ type: 'container', subtypes: ['40HC'] }], participants: [], strategy: null,
         charges: [{ chargeKey: 'freight', amount: '100', currency: 'USD', basis: 'container' }], conditions: [],
       }],
@@ -277,8 +278,8 @@ test('stale approved cards do not block discovery or a new rate import', async (
     const inbox = join(workspace, 'inbox');
     mkdirSync(inbox);
     writeFileSync(join(inbox, 'new.csv'), [
-      'cardId,ruleId,serviceKey,origin,assetType,assetSubtype,chargeKey,amount,currency,basis,sourceRef,approvalStatus,approvedBy,approvedAt',
-      'current-card,current-rule,fcl_freight_forwarding,NLRTM,container,40HC,freight,120,USD,container,NEW,draft,,,',
+      'cardId,ruleId,serviceKey,origin,assetType,assetSubtype,validFrom,validTo,chargeKey,amount,currency,basis,sourceRef,approvalStatus,approvedBy,approvedAt',
+      'current-card,current-rule,fcl_freight_forwarding,NLRTM,container,40HC,2026-08-01,2026-12-31,freight,120,USD,container,NEW,draft,,,',
     ].join('\n'));
     const imported = await runTool(workspace, [
       'ingest-rates.ts', inbox, '--catalog', catalogPath, '--index', indexPath,
@@ -424,9 +425,9 @@ test('operator imports diverse CSV rates into one versioned Heroes-shaped catalo
     const conflictInbox = join(workspace, 'conflict-inbox');
     mkdirSync(conflictInbox);
     writeFileSync(join(conflictInbox, 'conflict.csv'), [
-      'cardId,ruleId,serviceKey,origin,destination,assetType,chargeKey,amount,currency,basis,sourceRef,approvalStatus,approvedBy,approvedAt',
-      'conflict-card,conflict-rule,fcl_freight_forwarding,NLRTM,USNYC,container,freight,10,USD,container,REF-A,draft,,',
-      'conflict-card,conflict-rule,fcl_freight_forwarding,NLRTM,USNYC,container,documentation,1,USD,document,REF-B,draft,,',
+      'cardId,ruleId,serviceKey,origin,destination,assetType,validFrom,validTo,chargeKey,amount,currency,basis,sourceRef,approvalStatus,approvedBy,approvedAt',
+      'conflict-card,conflict-rule,fcl_freight_forwarding,NLRTM,USNYC,container,2026-08-01,2026-12-31,freight,10,USD,container,REF-A,draft,,',
+      'conflict-card,conflict-rule,fcl_freight_forwarding,NLRTM,USNYC,container,2026-08-01,2026-12-31,documentation,1,USD,document,REF-B,draft,,',
     ].join('\n'));
     const conflict = await runTool(workspace, [
       'ingest-rates.ts', conflictInbox, '--catalog', catalogPath, '--index', indexPath,
@@ -439,8 +440,8 @@ test('operator imports diverse CSV rates into one versioned Heroes-shaped catalo
     mkdirSync(collisionInbox);
     const collisionName = 'collision.csv';
     writeFileSync(join(collisionInbox, collisionName), [
-      'cardId,ruleId,serviceKey,origin,destination,assetType,chargeKey,amount,currency,basis,sourceRef,approvalStatus,approvedBy,approvedAt',
-      'collision-card,collision-rule,fcl_freight_forwarding,NLRTM,USNYC,container,freight,10,USD,container,REF-C,draft,,',
+      'cardId,ruleId,serviceKey,origin,destination,assetType,validFrom,validTo,chargeKey,amount,currency,basis,sourceRef,approvalStatus,approvedBy,approvedAt',
+      'collision-card,collision-rule,fcl_freight_forwarding,NLRTM,USNYC,container,2026-08-01,2026-12-31,freight,10,USD,container,REF-C,draft,,',
     ].join('\n'));
     writeFileSync(join(processed, collisionName), 'existing evidence');
     const beforeCollision = readFileSync(indexPath, 'utf8');
@@ -526,10 +527,14 @@ test('rate discovery blocks two approved applicable rules instead of choosing th
     assert.equal(JSON.parse(unresolved.stdout).status, 'incomplete');
     assert.match(JSON.parse(unresolved.stdout).reason, /participant carrier-a:assignee/);
 
+    const approvedCards = [card('filed-a', '8000'), card('filed-b', '7900')];
+    const draftCards = Array.from({ length: 25 }, (_, index) => {
+      const draft = card(`draft-${String(index).padStart(2, '0')}`, String(8100 + index));
+      draft.approval = { status: 'draft', approvedBy: '', approvedAt: '' };
+      return draft;
+    });
     writeFileSync(indexPath, JSON.stringify({
-      schemaVersion: '1.0',
-      rateCards: Array.from({ length: 25 }, (_, index) =>
-        card(`filed-${String(index).padStart(2, '0')}`, String(8000 + index))),
+      schemaVersion: '1.0', rateCards: [...draftCards, ...approvedCards],
     }));
     const bounded = await runTool(workspace, [
       'find-rate.ts', '--service-key', 'fcl_freight_forwarding', '--origin', 'NLRTM', '--dest', 'USNYC',
@@ -539,15 +544,20 @@ test('rate discovery blocks two approved applicable rules instead of choosing th
     assert.equal(bounded.code, 3, bounded.stderr || bounded.stdout);
     const boundedDiscovery = JSON.parse(bounded.stdout);
     assert.equal(boundedDiscovery.status, 'ambiguous');
-    assert.equal(boundedDiscovery.candidateTotal, 25);
+    assert.equal(boundedDiscovery.candidateTotal, 27);
     assert.equal(boundedDiscovery.candidatesTruncated, true);
     assert.equal(boundedDiscovery.candidates.length, 20);
     assert.deepEqual(Object.keys(boundedDiscovery.candidates[0]).sort(), [
-      'cardId', 'ineligibleReasons', 'missingFacts', 'ruleId', 'sourceReferences',
+      'cardId', 'class', 'ineligibleReasons', 'missingFacts', 'ruleId', 'sourceReferences',
     ]);
     assert.deepEqual(boundedDiscovery.candidates[0].sourceReferences, [
-      { sourceFile: 'filed-00.csv', sourceRef: 'filed-00' },
+      { sourceFile: 'filed-a.csv', sourceRef: 'filed-a' },
     ]);
+    assert.deepEqual(
+      boundedDiscovery.candidates.slice(0, 2).map((candidate: { cardId: string; class: string }) =>
+        [candidate.cardId, candidate.class]),
+      [['filed-a', 'eligible'], ['filed-b', 'eligible']],
+    );
     assert.equal(boundedDiscovery.candidates[0].rule, undefined);
     assert.equal(boundedDiscovery.candidates[0].sourceEvidence, undefined);
   } finally {
@@ -603,6 +613,59 @@ test('rate import rejects a CSV with no rate rows and keeps its source recoverab
     assert.equal(existsSync(source), true);
     assert.equal(existsSync(indexPath), false);
     assert.equal(existsSync(join(processed, 'header-only.csv')), false);
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test('rate rules require at least one validity timeframe in canonical JSON and CSV', async () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'heroes-rate-validity-required-'));
+  try {
+    const catalogPath = join(workspace, 'heroes-catalog.json');
+    const responseHash = writeHeroesCatalog(catalogPath, {
+      schemaVersion: '1.0', fetchedAt: '2026-08-13T00:00:00Z',
+      ...catalogVocabulary,
+      services: [{ serviceKey: 'fcl_freight_forwarding' }],
+      assetTypes: [{ code: 'container' }],
+      assetSubtypes: [{ assetType: 'container', subtype: '40HC' }],
+    });
+    const card = sealedCard({
+      id: 'no-validity', journeyType: 'OFFER',
+      rules: [{
+        id: 'no-validity-rule', serviceKey: 'fcl_freight_forwarding',
+        locodes: [{ code: 'NLRTM', role: 'origin' }], timeframes: [],
+        assetTypes: [{ type: 'container', subtypes: ['40HC'] }], participants: [], strategy: null,
+        charges: [{ chargeKey: 'freight', amount: '100', currency: 'USD', basis: 'container' }], conditions: [],
+      }],
+      sourceEvidence: [{ sourceFile: 'no-validity.csv', sourceRef: 'ROW-2', sourceHash: 'a'.repeat(64) }],
+      approval: { status: 'approved', approvedBy: 'operator', approvedAt: '2026-08-13T00:00:00Z' },
+      catalogReference: { responseHash, fetchedAt: '2026-08-13T00:00:00Z' },
+    } as RateCard);
+    const indexPath = join(workspace, 'rate-catalog.json');
+    writeFileSync(indexPath, JSON.stringify({ schemaVersion: '1.0', rateCards: [card] }));
+
+    const discovery = await runTool(workspace, [
+      'find-rate.ts', '--service-key', 'fcl_freight_forwarding', '--origin', 'NLRTM',
+      '--asset-type', 'container', '--asset-subtype', '40HC',
+      '--index', indexPath, '--catalog', catalogPath, '--json',
+    ]);
+    assert.equal(discovery.code, 4, discovery.stderr || discovery.stdout);
+    assert.match(JSON.parse(discovery.stdout).reason, /at least one timeframe is required/);
+
+    const inbox = join(workspace, 'inbox');
+    mkdirSync(inbox);
+    const source = join(inbox, 'missing-validity.csv');
+    writeFileSync(source, [
+      'cardId,ruleId,serviceKey,origin,assetType,assetSubtype,validFrom,validTo,chargeKey,amount,currency,basis,sourceRef,approvalStatus',
+      'card-1,rule-1,fcl_freight_forwarding,NLRTM,container,40HC,,,freight,100,USD,container,ROW-2,draft',
+    ].join('\n'));
+    const imported = await runTool(workspace, [
+      'ingest-rates.ts', inbox, '--catalog', catalogPath, '--index', join(workspace, 'imported.json'),
+      '--processed', join(workspace, 'processed'),
+    ]);
+    assert.equal(imported.code, 1, imported.stderr || imported.stdout);
+    assert.match(imported.stderr, /at least one timeframe is required/);
+    assert.equal(existsSync(source), true);
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }
