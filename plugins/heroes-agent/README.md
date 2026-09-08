@@ -2,7 +2,7 @@
 
 Heroes Agent turns a local agent into one tenant-scoped logistics peer for Logic Heroes. It triages deposited documents, drives legal HANDSHAKE and solicited one-to-one RFQ transitions, quotes from a local rate catalog, downloads service attachments, and watches for counterparty changes. The original demo remains outside this plugin unchanged.
 
-The plugin targets local Codex, Claude Code, and Cursor agents. It does not provide equivalent browser-based ChatGPT operation: that would require a hosted MCP server, OAuth/user tenancy, durable hosting, and a replacement for local filesystem intake.
+The plugin targets local Codex, Claude Code, and Cursor agents. It can bind one peer to one Supabase project for private operational memory. It does not provide equivalent browser-based ChatGPT operation: that requires a hosted MCP server, OAuth/user tenancy, durable hosting, and a replacement for local filesystem intake.
 
 ## Quick start (agents)
 
@@ -141,6 +141,24 @@ cursor-agent -p --output-format text --model composer-2.5 --force --trust \
 Cursor provides no general plugin validator and no local CLI install or list flow comparable to Codex or Claude Code. `cursor-agent plugin marketplace list` is read-only account visibility only. A direct `--plugin-dir` load proves manifest and skill acceptance; it does not prove Dashboard import or account marketplace indexing. See `docs/release-evidence/slice-9-cursor-smoke.md`.
 
 No installation command above stores a Heroes credential in a manifest or marketplace file.
+
+## Supabase project bootstrap
+
+S3 uses pinned Supabase CLI `2.117.0`. The setup helper installs it from the locked package file.
+
+Set `SUPABASE_ACCESS_TOKEN` and `SUPABASE_DB_PASSWORD` only in ignored peer file `self/.env`. OAuth remains the marketplace target. Never commit or print these local bootstrap values.
+
+From the peer workspace, preview one explicit project:
+
+```text
+node <plugin-root>/scripts/run-tool.mjs bootstrap-supabase.ts --project-ref <20-character-project-ref> --dry-run
+```
+
+Confirm the shown tenant and project. Then run the same command without `--dry-run`. Run it once more without `--project-ref`. The second apply must report a safe no-op.
+
+The ignored `self/supabase/binding.json` file makes the tenant and project binding inspectable. The versioned migration creates only the private `heroes_agent_control` bootstrap schema. S4 owns rate schemas, grants, RLS policies, and user-specific mappings.
+
+See `skills/heroes-agent/references/supabase.md` for the exact failure meanings and recovery boundary.
 
 ## Peer initialization and authentication
 

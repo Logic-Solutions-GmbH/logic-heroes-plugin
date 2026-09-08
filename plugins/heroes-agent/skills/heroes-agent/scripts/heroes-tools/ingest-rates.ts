@@ -14,7 +14,7 @@ run(async () => {
   const dryRun = flags['dry-run'] === true;
   const openStore = prepareConfiguredRateIngestion(flags, dryRun);
   if (!existsSync(inbox)) throw new Error(`Inbox not found: ${inbox}`);
-  const { store, writeLocation } = openStore({ inbox, processedDir });
+  const { store, writeLocation, ensureCanArchive, archive } = openStore({ inbox, processedDir });
   const files = readdirSync(inbox).filter((file) =>
     !file.startsWith('.') && statSync(join(inbox, file)).isFile() && extname(file).toLowerCase() === '.csv',
   );
@@ -23,15 +23,19 @@ run(async () => {
     kv('inbox', inbox);
     return;
   }
-
-  const result = await store.ingestRates({
+  const request = {
     sources: files.map((file) => ({
       sourceFile: file,
       csv: readFileSync(join(inbox, file), 'utf8'),
     })),
     approveBy,
     dryRun,
-  });
+  };
+  if (!dryRun) {
+    await store.ingestRates({ ...request, dryRun: true });
+    ensureCanArchive(files);
+  }
+  const result = await store.ingestRates(request);
 
   heading('Rate import');
   kv('files', result.files);
@@ -42,5 +46,6 @@ run(async () => {
     kv('status', 'valid; no files changed');
     return;
   }
+  archive(files);
   kv('index', writeLocation);
 });
