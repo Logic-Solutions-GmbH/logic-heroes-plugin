@@ -60,7 +60,7 @@ function requireCredentials(): void {
 
 function cliPath(): string {
   if (process.env.HEROES_SUPABASE_CLI) return process.env.HEROES_SUPABASE_CLI;
-  return join(toolsDir, 'node_modules', '.bin', process.platform === 'win32' ? 'supabase.cmd' : 'supabase');
+  return join(toolsDir, 'node_modules', 'supabase', 'dist', 'supabase.js');
 }
 
 function cliEnvironment(): NodeJS.ProcessEnv {
@@ -84,7 +84,7 @@ function cliEnvironment(): NodeJS.ProcessEnv {
 }
 
 function callCli(args: string[]): CliResult {
-  const result = spawnSync(cliPath(), args, {
+  const result = spawnSync(process.execPath, [cliPath(), ...args], {
     cwd: process.cwd(),
     env: cliEnvironment(),
     encoding: 'utf8',
@@ -106,7 +106,7 @@ function isAuthenticationFailure(result: CliResult): boolean {
 }
 
 function isHistoryFailure(result: CliResult): boolean {
-  return /(?:migration repair|migration history|remote migration versions|out of sync)/i.test(
+  return /(?:migration repair|migration history|remote migration versions|out of sync|local migration files to be inserted)/i.test(
     `${result.stdout}\n${result.stderr}`,
   );
 }
@@ -231,7 +231,10 @@ function prepareProject(projectDir: string): string[] {
   for (const name of ['config.toml', ...migrationFiles.map((file) => join('migrations', file))]) {
     const source = readFileSync(join(sourceSupabase, name), 'utf8');
     const target = join(targetSupabase, name);
-    if (!existsSync(target) || readFileSync(target, 'utf8') !== source) {
+    if (!existsSync(target)) {
+      mkdirSync(dirname(target), { recursive: true });
+      cpSync(join(sourceSupabase, name), target, { errorOnExist: true });
+    } else if (readFileSync(target, 'utf8') !== source) {
       throw failure('migration_history_mismatch', `Local Supabase bootstrap file diverged: ${name}. Restore the plugin copy.`);
     }
   }
@@ -281,6 +284,12 @@ function valueOf(row: unknown, key: 'local' | 'remote'): string | undefined {
 }
 
 function assertHistoryMatches(rows: unknown[], expectedVersions: string[], phase: 'before' | 'after'): void {
+  if (rows.some((row) => !valueOf(row, 'local') && !valueOf(row, 'remote'))) {
+    throw failure(
+      'migration_history_mismatch',
+      'Supabase migration history contains an invalid empty row. An operator must inspect it.',
+    );
+  }
   const local = new Set(rows.map((row) => valueOf(row, 'local')).filter((v): v is string => !!v));
   const remote = new Set(rows.map((row) => valueOf(row, 'remote')).filter((v): v is string => !!v));
   if (phase === 'before') {
@@ -360,16 +369,15 @@ run(async () => {
     kv('status', 'valid; no migration applied');
     return;
   }
+  if (wasUpToDate) {
+    kv('status', 'already up to date; no migration applied');
+    return;
+  }
 
   writeAttempt(attemptPath, binding, migrationVersions);
   pushMigrations(projectDir, false);
   const after = migrationList(projectDir);
   assertHistoryMatches(after, migrationVersions, 'after');
   unlinkSync(attemptPath);
-  kv(
-    'status',
-    wasUpToDate
-      ? 'already up to date; no migration applied'
-      : 'connected; migrations verified',
-  );
+  kv('status', 'connected; migrations verified');
 });

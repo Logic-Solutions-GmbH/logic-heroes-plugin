@@ -31,10 +31,7 @@ run(async () => {
     approveBy,
     dryRun,
   };
-  if (!dryRun) {
-    await store.ingestRates({ ...request, dryRun: true });
-    ensureCanArchive(files);
-  }
+  if (!dryRun) ensureCanArchive(files);
   const result = await store.ingestRates(request);
 
   heading('Rate import');

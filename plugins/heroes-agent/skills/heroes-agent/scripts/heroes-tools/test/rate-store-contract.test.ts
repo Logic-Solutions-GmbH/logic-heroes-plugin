@@ -84,10 +84,13 @@ const adapters: { name: string; create(): Harness }[] = [
   {
     name: 'in-memory',
     create() {
+      const stagedSources = new Set<string>();
       return {
         store: createInMemoryRateStore({ heroesCatalog: heroesCatalog() }),
-        stageSources() {},
-        sourceExists: () => true,
+        stageSources(sources) {
+          for (const source of sources) stagedSources.add(source.sourceFile);
+        },
+        sourceExists: (sourceFile) => stagedSources.has(sourceFile),
         cleanup() {},
       };
     },

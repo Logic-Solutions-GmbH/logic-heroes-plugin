@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { flagString } from './lib';
 import {
   approveRateCard, discoverRate, importRateCsv, validateRateCatalog,
-  type HeroesRateCatalog, type RateCatalog, type RateDiscovery, type RateDiscoveryQuery,
+  type HeroesRateCatalog, type RateCard, type RateCatalog, type RateDiscovery, type RateDiscoveryQuery,
 } from './rate-contract';
 
 export interface RateIngestSource {
@@ -40,6 +40,21 @@ interface PreparedIngestion {
   result: Omit<RateIngestResult, 'committed'>;
 }
 
+function sameRateCardContent(
+  existing: RateCard,
+  incoming: RateCard,
+  approveBy: string | undefined,
+): boolean {
+  const contentOf = ({ approval: _approval, ...content }: RateCard) => content;
+  if (JSON.stringify(contentOf(existing)) !== JSON.stringify(contentOf(incoming))) return false;
+  if (approveBy) {
+    return incoming.approval.status === 'draft' &&
+      existing.approval.status === 'approved' &&
+      existing.approval.approvedBy === approveBy;
+  }
+  return JSON.stringify(existing.approval) === JSON.stringify(incoming.approval);
+}
+
 function prepareIngestion(
   existingCatalog: RateCatalog,
   heroesCatalog: HeroesRateCatalog,
@@ -52,18 +67,17 @@ function prepareIngestion(
   const imported = request.sources.map(({ sourceFile, csv }) =>
     importRateCsv(csv, sourceFile, heroesCatalog),
   );
-  if (request.approveBy) {
-    for (const batch of imported) for (const card of batch.rateCards) {
+  const catalog = structuredClone(existingCatalog);
+  for (const batch of imported) for (const card of batch.rateCards) {
+    const existing = catalog.rateCards.find((candidate) => candidate.id === card.id);
+    if (existing) {
+      if (sameRateCardContent(existing, card, request.approveBy)) continue;
+      throw new Error(`Duplicate rate card id: ${card.id}`);
+    }
+    if (request.approveBy) {
       if (card.approval.status !== 'draft') throw new Error(`Card ${card.id} is already approved`);
       approveRateCard(card, request.approveBy, approvedAt);
     }
-  }
-
-  const catalog = structuredClone(existingCatalog);
-  const ids = new Set(catalog.rateCards.map((card) => card.id));
-  for (const batch of imported) for (const card of batch.rateCards) {
-    if (ids.has(card.id)) throw new Error(`Duplicate rate card id: ${card.id}`);
-    ids.add(card.id);
     catalog.rateCards.push(card);
   }
   catalog.rateCards.sort((left, right) => left.id.localeCompare(right.id));

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
-  chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync,
+  existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, unlinkSync,
+  writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -45,15 +46,22 @@ else if (args[0] === 'projects' && args[1] === 'list') {
 }
 else if (args.includes('migration') && args.includes('list')) console.log(JSON.stringify([
   process.env.FAKE_SUPABASE_MODE === 'divergent'
-    ? { Local: null, Remote: '20260907000100' }
+    ? { local: null, remote: '20260907000100', time: '2026-09-07T00:01:00Z' }
+    : process.env.FAKE_SUPABASE_MODE === 'empty-history'
+      ? { local: null, remote: null, time: '' }
     : {
-        Local: '20260908000100',
-        Remote: existsSync(process.env.FAKE_SUPABASE_STATE) && process.env.FAKE_SUPABASE_MODE !== 'partial'
+        local: '20260908000100',
+        remote: existsSync(process.env.FAKE_SUPABASE_STATE) && process.env.FAKE_SUPABASE_MODE !== 'partial'
           ? '20260908000100'
           : null,
+        time: '2026-09-08T00:01:00Z',
       },
 ]));
 else if (args.includes('db') && args.includes('push') && args.includes('--dry-run')) {
+  if (process.env.FAKE_SUPABASE_MODE === 'history-plan') {
+    console.error('Local migration files to be inserted before the last migration on remote database.');
+    process.exit(1);
+  }
   console.log(existsSync(process.env.FAKE_SUPABASE_STATE)
     ? 'Linked project is up to date.'
     : 'Would apply migration 20260908000100_heroes_agent_bootstrap.sql');
@@ -66,7 +74,6 @@ else if (args.includes('db') && args.includes('push') && args.includes('--dry-ru
   console.log('Finished supabase db push.');
 } else console.log('ok');
 `);
-  chmodSync(cli, 0o700);
   return { cli, log, state };
 }
 
@@ -140,8 +147,75 @@ test('dry-run binds one tenant to one verified project without exposing credenti
     const calls = readFileSync(fake.log, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
     assert.ok(calls.every((call) => call.hasAccessToken && call.hasDatabasePassword));
     assert.ok(calls.every((call) => !call.hasHeroesApiKey));
+
+    const configPath = join(workspace, 'self', 'supabase', 'project', 'supabase', 'config.toml');
+    unlinkSync(configPath);
+    const upgrade = spawnSync(
+      process.execPath,
+      [launcher, 'bootstrap-supabase.ts', '--dry-run'],
+      { cwd: workspace, encoding: 'utf8', env: {
+        ...process.env,
+        HEROES_SUPABASE_CLI: fake.cli,
+        FAKE_SUPABASE_LOG: fake.log,
+        FAKE_SUPABASE_STATE: fake.state,
+      } },
+    );
+    assert.equal(upgrade.status, 0, upgrade.stderr || upgrade.stdout);
+    assert.equal(existsSync(configPath), true);
   } finally {
     rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test('bootstrap refuses tenant mismatch and conflicting project selection', () => {
+  const cases = [
+    {
+      tenantKey: 'other-corp',
+      args: [] as string[],
+      code: 'project_identity_mismatch',
+    },
+    {
+      tenantKey: 'acme-corp',
+      args: ['--project-ref', 'zyxwvutsrqponmlkjihg'],
+      code: 'project_binding_ambiguous',
+    },
+  ];
+  for (const expected of cases) {
+    const workspace = mkdtempSync(join(tmpdir(), 'heroes-supabase-existing-bind-'));
+    try {
+      mkdirSync(join(workspace, 'self', 'supabase'), { recursive: true });
+      writeFileSync(
+        join(workspace, 'self', 'identity.md'),
+        '# Who I am\n\n- **Tenant key:** `acme-corp`\n- **Display name:** `Acme Corp`\n',
+      );
+      writeFileSync(
+        join(workspace, 'self', '.env'),
+        'SUPABASE_ACCESS_TOKEN=test-access-secret\nSUPABASE_DB_PASSWORD=test-database-secret\n',
+        { mode: 0o600 },
+      );
+      writeFileSync(join(workspace, 'self', 'supabase', 'binding.json'), JSON.stringify({
+        schemaVersion: '1.0',
+        heroesTenantKey: expected.tenantKey,
+        supabaseProjectRef: 'abcdefghijklmnopqrst',
+        supabaseProjectName: 'Fresh Test',
+        supabaseRegion: 'eu-central-1',
+      }));
+      const fake = writeFakeSupabase(workspace);
+      const result = spawnSync(
+        process.execPath,
+        [launcher, 'bootstrap-supabase.ts', ...expected.args],
+        { cwd: workspace, encoding: 'utf8', env: {
+          ...process.env,
+          HEROES_SUPABASE_CLI: fake.cli,
+          FAKE_SUPABASE_LOG: fake.log,
+          FAKE_SUPABASE_STATE: fake.state,
+        } },
+      );
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, new RegExp(`\\[${expected.code}\\]`));
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
   }
 });
 
@@ -189,7 +263,7 @@ test('apply verifies the migration and a second run reports a safe no-op', () =>
     const commands = calls.map((call) => call.args.join(' '));
     assert.equal(commands.some((command) => command.includes('migration repair')), false);
     assert.equal(commands.filter((command) => command.includes('db push') && command.includes('--dry-run')).length, 2);
-    assert.equal(commands.filter((command) => command.includes('db push') && !command.includes('--dry-run')).length, 2);
+    assert.equal(commands.filter((command) => command.includes('db push') && !command.includes('--dry-run')).length, 1);
     const firstPlan = commands.findIndex((command) => command.includes('db push') && command.includes('--dry-run'));
     const firstApply = commands.findIndex((command) => command.includes('db push') && !command.includes('--dry-run'));
     const verification = commands.findIndex(
@@ -208,6 +282,8 @@ test('bootstrap returns stable redacted failures for unsafe remote states', () =
     { mode: 'mismatch', code: 'project_identity_mismatch' },
     { mode: 'migration-fail', code: 'migration_failed' },
     { mode: 'divergent', code: 'migration_history_mismatch' },
+    { mode: 'history-plan', code: 'migration_history_mismatch' },
+    { mode: 'empty-history', code: 'migration_history_mismatch' },
     { mode: 'partial', code: 'migration_partial' },
   ];
   for (const expected of cases) {
