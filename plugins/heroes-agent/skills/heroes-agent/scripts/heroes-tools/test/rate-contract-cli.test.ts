@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -441,7 +441,7 @@ test('operator imports diverse CSV rates into one versioned Heroes-shaped catalo
     const collisionName = 'collision.csv';
     writeFileSync(join(collisionInbox, collisionName), [
       'cardId,ruleId,serviceKey,origin,destination,assetType,validFrom,validTo,chargeKey,amount,currency,basis,sourceRef,approvalStatus,approvedBy,approvedAt',
-      'collision-card,collision-rule,fcl_freight_forwarding,NLRTM,USNYC,container,2026-08-01,2026-12-31,freight,10,USD,container,REF-C,draft,,',
+      'collision-card,collision-rule,fcl_freight_forwarding,NLRTM,USNYC,container,2026-08-01,2026-12-31,freight,10,not-a-currency,container,REF-C,draft,,',
     ].join('\n'));
     writeFileSync(join(processed, collisionName), 'existing evidence');
     const beforeCollision = readFileSync(indexPath, 'utf8');
@@ -671,7 +671,7 @@ test('rate rules require at least one validity timeframe in canonical JSON and C
   }
 });
 
-test('rate import dry-run writes nothing and duplicate retries keep their source recoverable', async () => {
+test('rate import dry-run writes nothing and an identical retry completes the pending archive', async () => {
   const workspace = mkdtempSync(join(tmpdir(), 'heroes-rate-dry-run-'));
   try {
     const catalogPath = join(workspace, 'heroes-catalog.json');
@@ -711,14 +711,14 @@ test('rate import dry-run writes nothing and duplicate retries keep their source
     assert.equal(existsSync(join(processed, 'rates.csv')), true);
     assert.equal(JSON.parse(readFileSync(indexPath, 'utf8')).rateCards.length, 1);
 
-    writeFileSync(source, csv);
+    renameSync(join(processed, 'rates.csv'), source);
     const duplicate = await runTool(workspace, [
       'ingest-rates.ts', inbox, '--catalog', catalogPath, '--index', indexPath,
       '--processed', processed,
     ]);
-    assert.equal(duplicate.code, 1, duplicate.stdout + duplicate.stderr);
-    assert.match(duplicate.stderr, /Duplicate rate card id/);
-    assert.equal(existsSync(source), true);
+    assert.equal(duplicate.code, 0, duplicate.stdout + duplicate.stderr);
+    assert.equal(existsSync(source), false);
+    assert.equal(existsSync(join(processed, 'rates.csv')), true);
     assert.equal(JSON.parse(readFileSync(indexPath, 'utf8')).rateCards.length, 1);
   } finally {
     rmSync(workspace, { recursive: true, force: true });

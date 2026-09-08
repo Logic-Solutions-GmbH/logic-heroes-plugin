@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { flagString } from './lib';
 import {
   approveRateCard, discoverRate, importRateCsv, validateRateCatalog,
-  type HeroesRateCatalog, type RateCatalog, type RateDiscovery, type RateDiscoveryQuery,
+  type HeroesRateCatalog, type RateCard, type RateCatalog, type RateDiscovery, type RateDiscoveryQuery,
 } from './rate-contract';
 
 export interface RateIngestSource {
@@ -40,6 +40,21 @@ interface PreparedIngestion {
   result: Omit<RateIngestResult, 'committed'>;
 }
 
+function sameRateCardContent(
+  existing: RateCard,
+  incoming: RateCard,
+  approveBy: string | undefined,
+): boolean {
+  const contentOf = ({ approval: _approval, ...content }: RateCard) => content;
+  if (JSON.stringify(contentOf(existing)) !== JSON.stringify(contentOf(incoming))) return false;
+  if (approveBy) {
+    return incoming.approval.status === 'draft' &&
+      existing.approval.status === 'approved' &&
+      existing.approval.approvedBy === approveBy;
+  }
+  return JSON.stringify(existing.approval) === JSON.stringify(incoming.approval);
+}
+
 function prepareIngestion(
   existingCatalog: RateCatalog,
   heroesCatalog: HeroesRateCatalog,
@@ -52,18 +67,17 @@ function prepareIngestion(
   const imported = request.sources.map(({ sourceFile, csv }) =>
     importRateCsv(csv, sourceFile, heroesCatalog),
   );
-  if (request.approveBy) {
-    for (const batch of imported) for (const card of batch.rateCards) {
+  const catalog = structuredClone(existingCatalog);
+  for (const batch of imported) for (const card of batch.rateCards) {
+    const existing = catalog.rateCards.find((candidate) => candidate.id === card.id);
+    if (existing) {
+      if (sameRateCardContent(existing, card, request.approveBy)) continue;
+      throw new Error(`Duplicate rate card id: ${card.id}`);
+    }
+    if (request.approveBy) {
       if (card.approval.status !== 'draft') throw new Error(`Card ${card.id} is already approved`);
       approveRateCard(card, request.approveBy, approvedAt);
     }
-  }
-
-  const catalog = structuredClone(existingCatalog);
-  const ids = new Set(catalog.rateCards.map((card) => card.id));
-  for (const batch of imported) for (const card of batch.rateCards) {
-    if (ids.has(card.id)) throw new Error(`Duplicate rate card id: ${card.id}`);
-    ids.add(card.id);
     catalog.rateCards.push(card);
   }
   catalog.rateCards.sort((left, right) => left.id.localeCompare(right.id));
@@ -126,7 +140,6 @@ export function createInMemoryRateStore(options: {
 interface RateStoreOptions {
   indexPath: string;
   catalogPath: string;
-  archive?: { inbox: string; processedDir: string };
   transactionMode?: 'recover' | 'refuse';
   requireCatalogOnOpen?: boolean;
   now?: () => string;
@@ -192,7 +205,6 @@ function prepareRateStoreTransaction(
 
 /** Open the configured durable rate store. The current adapter is local and CSV-compatible. */
 export function openRateStore(options: RateStoreOptions): RateStore {
-  const transactionPath = `${options.indexPath}.transaction.json`;
   prepareRateStoreTransaction(options.indexPath, options.transactionMode);
   if (options.requireCatalogOnOpen && !existsSync(options.catalogPath)) {
     throw new RateStoreUnavailableError(
@@ -216,41 +228,8 @@ export function openRateStore(options: RateStoreOptions): RateStore {
 
       mkdirSync(dirname(options.indexPath), { recursive: true });
       const nextIndex = `${options.indexPath}.next`;
-      if (!options.archive) {
-        writeFileSync(nextIndex, `${JSON.stringify(prepared.catalog, null, 2)}\n`, { mode: 0o600 });
-        renameSync(nextIndex, options.indexPath);
-        return { ...prepared.result, committed: true };
-      }
-
-      const { inbox, processedDir } = options.archive;
-      const files = request.sources.map(({ sourceFile }) => sourceFile);
-      mkdirSync(processedDir, { recursive: true });
-      for (const file of files) {
-        const destination = join(processedDir, file);
-        if (existsSync(destination)) throw new Error(`Processed file already exists: ${destination}`);
-      }
-      const transaction = (phase: 'preparing' | 'staged' | 'committed') =>
-        `${JSON.stringify({ inbox, processedDir, files, phase }, null, 2)}\n`;
-      writeFileSync(transactionPath, transaction('preparing'), { mode: 0o600 });
       writeFileSync(nextIndex, `${JSON.stringify(prepared.catalog, null, 2)}\n`, { mode: 0o600 });
-      writeFileSync(transactionPath, transaction('staged'), { mode: 0o600 });
-      const archived: string[] = [];
-      try {
-        renameSync(nextIndex, options.indexPath);
-        writeFileSync(transactionPath, transaction('committed'), { mode: 0o600 });
-        for (const file of files) {
-          renameSync(join(inbox, file), join(processedDir, file));
-          archived.push(file);
-        }
-        unlinkSync(transactionPath);
-      } catch (error) {
-        if (existsSync(nextIndex)) {
-          for (const file of archived.reverse()) renameSync(join(processedDir, file), join(inbox, file));
-          unlinkSync(nextIndex);
-          if (existsSync(transactionPath)) unlinkSync(transactionPath);
-        }
-        throw error;
-      }
+      renameSync(nextIndex, options.indexPath);
       return { ...prepared.result, committed: true };
     },
     async findRate(query) {
@@ -299,16 +278,35 @@ export function openConfiguredRateStore(
 export function prepareConfiguredRateIngestion(
   flags: Record<string, string | boolean>,
   dryRun: boolean,
-): (source: { inbox: string; processedDir: string }) => { store: RateStore; writeLocation: string } {
+): (source: { inbox: string; processedDir: string }) => {
+  store: RateStore;
+  writeLocation: string;
+  ensureCanArchive(files: string[]): void;
+  archive(files: string[]): void;
+} {
   const { indexPath, catalogPath } = configuredRateStorePaths(flags);
   prepareRateStoreTransaction(indexPath, dryRun ? 'refuse' : 'recover');
-  return ({ inbox, processedDir }) => ({
-    store: openRateStore({
-      indexPath,
-      catalogPath,
-      archive: { inbox, processedDir },
-      requireCatalogOnOpen: true,
-    }),
-    writeLocation: indexPath,
-  });
+  return ({ inbox, processedDir }) => {
+    const transactionPath = `${indexPath}.transaction.json`;
+    return {
+      store: openRateStore({ indexPath, catalogPath, requireCatalogOnOpen: true }),
+      writeLocation: indexPath,
+      ensureCanArchive(files) {
+        for (const file of files) {
+          const destination = join(processedDir, file);
+          if (existsSync(destination)) throw new Error(`Processed file already exists: ${destination}`);
+        }
+      },
+      archive(files) {
+        mkdirSync(processedDir, { recursive: true });
+        writeFileSync(
+          transactionPath,
+          `${JSON.stringify({ inbox, processedDir, files, phase: 'committed' }, null, 2)}\n`,
+          { mode: 0o600 },
+        );
+        for (const file of files) renameSync(join(inbox, file), join(processedDir, file));
+        unlinkSync(transactionPath);
+      },
+    };
+  };
 }

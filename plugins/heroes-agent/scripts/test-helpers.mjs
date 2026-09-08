@@ -45,6 +45,9 @@ try {
   assert.match(envText, /^API_URL=https:\/\/api\.logicheroes\.network\/api$/m);
   assert.match(envText, /^API_KEY=$/m);
   assert.doesNotMatch(envText, /^API_KEY=.+$/m);
+  assert.match(envText, /^SUPABASE_ACCESS_TOKEN=$/m);
+  assert.match(envText, /^SUPABASE_DB_PASSWORD=$/m);
+  assert.doesNotMatch(envText, /^SUPABASE_(?:ACCESS_TOKEN|DB_PASSWORD)=.+$/m);
   assert.equal(existsSync(join(destination, '.env')), false);
 
   const peerIgnore = readFileSync(join(destination, '.gitignore'), 'utf8');

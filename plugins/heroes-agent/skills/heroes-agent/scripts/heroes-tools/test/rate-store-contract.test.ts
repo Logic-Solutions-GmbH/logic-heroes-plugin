@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -46,6 +46,7 @@ const query = {
 interface Harness {
   store: RateStore;
   stageSources(sources: { sourceFile: string; csv: string }[]): void;
+  sourceExists(sourceFile: string): boolean;
   cleanup(): void;
 }
 
@@ -71,11 +72,11 @@ const adapters: { name: string; create(): Harness }[] = [
         store: openRateStore({
           indexPath: join(workspace, 'rate-catalog.json'),
           catalogPath,
-          archive: { inbox, processedDir },
         }),
         stageSources(sources) {
           for (const source of sources) writeFileSync(join(inbox, source.sourceFile), source.csv);
         },
+        sourceExists: (sourceFile) => existsSync(join(inbox, sourceFile)),
         cleanup: () => rmSync(workspace, { recursive: true, force: true }),
       };
     },
@@ -83,9 +84,13 @@ const adapters: { name: string; create(): Harness }[] = [
   {
     name: 'in-memory',
     create() {
+      const stagedSources = new Set<string>();
       return {
         store: createInMemoryRateStore({ heroesCatalog: heroesCatalog() }),
-        stageSources() {},
+        stageSources(sources) {
+          for (const source of sources) stagedSources.add(source.sourceFile);
+        },
+        sourceExists: (sourceFile) => stagedSources.has(sourceFile),
         cleanup() {},
       };
     },
@@ -94,6 +99,17 @@ const adapters: { name: string; create(): Harness }[] = [
 
 for (const adapter of adapters) {
   describe(`${adapter.name} rate-store contract`, () => {
+    test('ingestRates persists rows but leaves source archival to its caller', async () => {
+      const harness = adapter.create();
+      try {
+        const source = { sourceFile: 'rates.csv', csv: csv('card-1', 'rule-1', '900') };
+        await ingest(harness, { sources: [source], approveBy: 'operator' });
+        assert.equal(harness.sourceExists(source.sourceFile), true);
+      } finally {
+        harness.cleanup();
+      }
+    });
+
     test('ingestRates normalizes aliases and preserves approval plus source provenance', async () => {
       const harness = adapter.create();
       try {
