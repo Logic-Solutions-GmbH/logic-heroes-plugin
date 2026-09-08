@@ -1,10 +1,9 @@
-/** Deterministic discovery against the versioned Heroes-shaped local rate catalog. */
-import { existsSync, readFileSync } from 'node:fs';
+/** Deterministic discovery through the configured rate store. */
 import { flagString, heading, kv, parseArgs, run } from './lib';
 import {
-  discoverRate, type HeroesRateCatalog, type LocationRole, type RateCatalog,
-  type RateDiscoveryQuery,
+  type LocationRole, type RateDiscovery, type RateDiscoveryQuery,
 } from './rate-contract';
+import { openConfiguredRateStore, RateStoreUnavailableError } from './rate-store';
 
 run(async () => {
   const argv = process.argv.slice(2);
@@ -31,8 +30,6 @@ run(async () => {
   const participantValues = repeated('participant');
   const strategyKey = flagString(flags, 'strategy');
   const strategyStep = flagString(flags, 'strategy-step');
-  const indexPath = flagString(flags, 'index') ?? 'self/rate-book/index/rate-catalog.json';
-  const catalogPath = flagString(flags, 'catalog') ?? 'self/rate-book/index/heroes-catalog.json';
   const jsonOnly = flags.json === true;
 
   const failQuery = (reason: string): never => {
@@ -80,23 +77,11 @@ run(async () => {
     if (extra !== undefined || (!from && !to)) failQuery('--timeframe must use <from>:<to> with either bound allowed');
     timeframes.push({ ...(from ? { from } : {}), ...(to ? { to } : {}) });
   }
-  if (!existsSync(indexPath) || !existsSync(catalogPath)) {
-    const result = {
-      status: 'invalid', match: false,
-      reason: `rate index and Heroes catalog are required (${indexPath}; ${catalogPath})`,
-      query: { serviceKey: requiredServiceKey, locodes, timeframes, assetTypes, participants, strategy },
-      candidates: [], candidateTotal: 0, candidatesTruncated: false,
-    };
-    console.log(JSON.stringify(result, null, 2));
-    process.exit(2);
-  }
-
   const query = { serviceKey: requiredServiceKey, locodes, timeframes, assetTypes, participants, strategy };
-  let result;
+  let result: RateDiscovery;
   try {
-    const rateCatalog = JSON.parse(readFileSync(indexPath, 'utf8')) as RateCatalog;
-    const heroesCatalog = JSON.parse(readFileSync(catalogPath, 'utf8')) as HeroesRateCatalog;
-    result = discoverRate(rateCatalog, heroesCatalog, query);
+    const { store } = openConfiguredRateStore(flags);
+    result = await store.findRate(query);
   } catch (error) {
     result = {
       status: 'invalid' as const,
@@ -107,6 +92,10 @@ run(async () => {
       candidateTotal: 0,
       candidatesTruncated: false,
     };
+    if (error instanceof RateStoreUnavailableError) {
+      console.log(JSON.stringify(result, null, 2));
+      process.exit(2);
+    }
   }
 
   if (!jsonOnly) {
