@@ -36,7 +36,10 @@ run(async () => {
   const jsonOnly = flags.json === true;
 
   const failQuery = (reason: string): never => {
-    console.log(JSON.stringify({ status: 'invalid', match: false, reason, candidates: [] }, null, 2));
+    console.log(JSON.stringify({
+      status: 'invalid', match: false, reason, candidates: [],
+      candidateTotal: 0, candidatesTruncated: false,
+    }, null, 2));
     process.exit(4);
   };
   const requiredServiceKey = serviceKey ?? failQuery('--service-key is required');
@@ -81,7 +84,8 @@ run(async () => {
     const result = {
       status: 'invalid', match: false,
       reason: `rate index and Heroes catalog are required (${indexPath}; ${catalogPath})`,
-      query: { serviceKey: requiredServiceKey, locodes, timeframes, assetTypes, participants, strategy }, candidates: [],
+      query: { serviceKey: requiredServiceKey, locodes, timeframes, assetTypes, participants, strategy },
+      candidates: [], candidateTotal: 0, candidatesTruncated: false,
     };
     console.log(JSON.stringify(result, null, 2));
     process.exit(2);
@@ -100,6 +104,8 @@ run(async () => {
       reason: error instanceof Error ? error.message : 'invalid rate catalog',
       query,
       candidates: [],
+      candidateTotal: 0,
+      candidatesTruncated: false,
     };
   }
 
@@ -107,7 +113,9 @@ run(async () => {
     heading(`Rate discovery: ${requiredServiceKey}`);
     kv('status', result.status);
     kv('reason', result.reason);
-    kv('candidates', result.candidates.length);
+    kv('candidates', result.candidatesTruncated
+      ? `${result.candidates.length} of ${result.candidateTotal}`
+      : result.candidateTotal);
     if (result.rate) {
       kv('card', result.rate.cardId);
       for (const charge of result.rate.rule.charges) {
@@ -117,5 +125,6 @@ run(async () => {
     }
   }
   console.log(JSON.stringify(result, null, 2));
-  process.exit(result.status === 'matched' ? 0 : result.status === 'none' ? 3 : 4);
+  // Exit 3 is a valid business decision result. Exit 4 is reserved for invalid input.
+  process.exit(result.status === 'matched' ? 0 : result.status === 'invalid' ? 4 : 3);
 });

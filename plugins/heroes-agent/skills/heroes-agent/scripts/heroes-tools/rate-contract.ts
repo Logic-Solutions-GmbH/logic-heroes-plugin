@@ -69,6 +69,17 @@ export interface RateCandidate {
   rule: RateRule;
   sourceEvidence: RateCard['sourceEvidence'];
   missingFacts: string[];
+  /** Business blockers that make stored evidence unsafe for automatic use. */
+  ineligibleReasons: string[];
+}
+
+export interface RateCandidateEvidence {
+  cardId: string;
+  ruleId: string;
+  class: 'eligible' | 'incomplete' | 'ineligible';
+  sourceReferences: { sourceFile: string; sourceRef: string }[];
+  missingFacts: string[];
+  ineligibleReasons: string[];
 }
 
 export interface RateDiscovery {
@@ -77,7 +88,34 @@ export interface RateDiscovery {
   reason: string;
   query: RateDiscoveryQuery;
   rate?: RateCandidate;
-  candidates: RateCandidate[];
+  candidates: RateCandidateEvidence[];
+  candidateTotal: number;
+  candidatesTruncated: boolean;
+}
+
+export const RATE_DISCOVERY_EVIDENCE_LIMIT = 20;
+
+function boundedCandidateEvidence(candidates: RateCandidate[]) {
+  const evidence = candidates.map((candidate): RateCandidateEvidence => ({
+    cardId: candidate.cardId,
+    ruleId: candidate.rule.id,
+    class: candidate.ineligibleReasons.length
+      ? 'ineligible'
+      : candidate.missingFacts.length ? 'incomplete' : 'eligible',
+    sourceReferences: candidate.sourceEvidence.map(({ sourceFile, sourceRef }) => ({ sourceFile, sourceRef })),
+    missingFacts: candidate.missingFacts,
+    ineligibleReasons: candidate.ineligibleReasons,
+  })).sort((a, b) => {
+    const classOrder = { eligible: 0, incomplete: 1, ineligible: 2 } as const;
+    if (classOrder[a.class] !== classOrder[b.class]) return classOrder[a.class] - classOrder[b.class];
+    if (a.cardId !== b.cardId) return a.cardId < b.cardId ? -1 : 1;
+    return a.ruleId === b.ruleId ? 0 : a.ruleId < b.ruleId ? -1 : 1;
+  });
+  return {
+    candidates: evidence.slice(0, RATE_DISCOVERY_EVIDENCE_LIMIT),
+    candidateTotal: evidence.length,
+    candidatesTruncated: evidence.length > RATE_DISCOVERY_EVIDENCE_LIMIT,
+  };
 }
 
 export const RATE_CSV_COLUMNS = [
@@ -378,6 +416,9 @@ export function validateRateCatalog(
         if (!location.code) issues.push(`${ruleAt}: location code is required`);
         if (!locationRoles.has(location.role)) issues.push(`${ruleAt}: unknown Heroes location role ${location.role}`);
       }
+      if (!Array.isArray(rule.timeframes) || rule.timeframes.length === 0) {
+        issues.push(`${ruleAt}: at least one timeframe is required`);
+      }
       for (const asset of rule.assetTypes ?? []) {
         if (!assetTypes.has(asset.type)) issues.push(`${ruleAt}: unknown Heroes assetType ${asset.type}`);
         for (const subtype of asset.subtypes ?? []) {
@@ -451,6 +492,7 @@ export function importRateCsv(
   catalog: HeroesRateCatalog,
 ): RateCatalog {
   const rows = csvToObjects(csv);
+  if (rows.length === 0) throw new Error(`${sourceFile}: no rate rows`);
   const { serviceKeys, assetTypes, assetSubtypes, locationRoles } = catalogIndex(catalog);
   const sourceHash = createHash('sha256').update(csv).digest('hex');
   const cards = new Map<string, RateCard>();
@@ -666,7 +708,10 @@ export function discoverRate(
 ): RateDiscovery {
   const issues = validateRateCatalog(rateCatalog, heroesCatalog);
   if (issues.length) {
-    return { status: 'invalid', match: false, reason: issues.join('; '), query, candidates: [] };
+    return {
+      status: 'invalid', match: false, reason: issues.join('; '), query,
+      candidates: [], candidateTotal: 0, candidatesTruncated: false,
+    };
   }
   const index = catalogIndex(heroesCatalog);
   const queryIssues: string[] = [];
@@ -703,15 +748,17 @@ export function discoverRate(
     }
   }
   if (queryIssues.length) {
-    return { status: 'invalid', match: false, reason: queryIssues.join('; '), query, candidates: [] };
+    return {
+      status: 'invalid', match: false, reason: queryIssues.join('; '), query,
+      candidates: [], candidateTotal: 0, candidatesTruncated: false,
+    };
   }
   const candidates: RateCandidate[] = [];
   const incomplete: RateCandidate[] = [];
+  const ineligible: RateCandidate[] = [];
   for (const card of rateCatalog.rateCards) {
-    if (card.approval.status !== 'approved') continue;
     for (const rule of card.rules) {
       if (rule.serviceKey !== query.serviceKey) continue;
-      if (card.catalogReference.responseHash !== heroesCatalog.responseHash) continue;
       if (rule.locodes.some((actual) => {
         const sameRole = query.locodes.filter((wanted) => wanted.role === actual.role);
         return sameRole.length > 0 && !sameRole.some((wanted) =>
@@ -719,11 +766,12 @@ export function discoverRate(
         );
       })) continue;
       if (query.timeframes?.some((wanted) => !rule.timeframes.some((actual) =>
-        (!wanted.from || !actual.to || wanted.from <= actual.to) &&
-        (!wanted.to || !actual.from || wanted.to >= actual.from),
+        (wanted.from ? !actual.from || wanted.from >= actual.from : !actual.from) &&
+        (wanted.to ? !actual.to || wanted.to <= actual.to : !actual.to),
       ))) continue;
       if (rule.assetTypes.some((actual) => {
         const wanted = query.assetTypes?.find((item) => item.type === actual.type);
+        if (query.assetTypes?.length && !wanted) return true;
         return wanted && actual.subtypes.length > 0 && wanted.subtypes.length > 0 &&
           !wanted.subtypes.some((subtype) => actual.subtypes.includes(subtype));
       })) continue;
@@ -764,32 +812,53 @@ export function discoverRate(
       else if (rule.strategy?.currentStep && !query.strategy?.currentStep) {
         missingFacts.push(`strategy step ${rule.strategy.currentStep}`);
       }
-      const candidate = { cardId: card.id, rule, sourceEvidence: card.sourceEvidence, missingFacts };
-      if (missingFacts.length) incomplete.push(candidate);
+      const ineligibleReasons: string[] = [];
+      if (card.approval.status !== 'approved') ineligibleReasons.push('rate card is not approved');
+      if (card.catalogReference.responseHash !== heroesCatalog.responseHash) {
+        ineligibleReasons.push('rate card does not reference the active Heroes catalog');
+      }
+      const candidate = {
+        cardId: card.id, rule, sourceEvidence: card.sourceEvidence, missingFacts, ineligibleReasons,
+      };
+      if (ineligibleReasons.length) ineligible.push(candidate);
+      else if (missingFacts.length) incomplete.push(candidate);
       else candidates.push(candidate);
     }
   }
 
+  const evidence = [...candidates, ...incomplete, ...ineligible];
+  const boundedEvidence = boundedCandidateEvidence(evidence);
+
   if (incomplete.length) {
     const facts = [...new Set(incomplete.flatMap((candidate) => candidate.missingFacts))];
+    const displayedFacts = facts.slice(0, RATE_DISCOVERY_EVIDENCE_LIMIT);
+    const factSuffix = facts.length > displayedFacts.length
+      ? `, and ${facts.length - displayedFacts.length} more`
+      : '';
     return {
       status: 'incomplete', match: false,
-      reason: `shipment facts are required: ${facts.join(', ')}`,
-      query, candidates: [...candidates, ...incomplete],
+      reason: `shipment facts are required: ${displayedFacts.join(', ')}${factSuffix}`,
+      query, ...boundedEvidence,
     };
   }
   if (candidates.length === 0) {
-    return { status: 'none', match: false, reason: 'no approved current rate rule applies', query, candidates };
+    const reason = ineligible.length
+      ? `${ineligible.length} stored rate rule${ineligible.length === 1 ? ' is' : 's are'} not automatically usable; inspect candidate evidence`
+      : 'no complete approved current valid rate rule applies';
+    return {
+      status: 'none', match: false, reason, query, ...boundedEvidence,
+    };
   }
   if (candidates.length > 1) {
     return {
       status: 'ambiguous', match: false,
-      reason: `${candidates.length === 2 ? 'two' : candidates.length} approved rate rules apply; human resolution is required`,
-      query, candidates,
+      reason: `${candidates.length === 2 ? 'two' : candidates.length} complete approved current valid rate rules apply; human resolution is required`,
+      query, ...boundedEvidence,
     };
   }
   return {
-    status: 'matched', match: true, reason: 'one approved current rate rule applies',
-      query, rate: candidates[0], candidates,
+    status: 'matched', match: true,
+    reason: 'one complete approved current valid rate rule applies',
+      query, rate: candidates[0], ...boundedEvidence,
   };
 }

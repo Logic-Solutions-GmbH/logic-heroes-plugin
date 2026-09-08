@@ -22,6 +22,13 @@ test('CSV parser preserves quoted commas, quotes, and newlines', () => {
   assert.deepEqual(parseCsv(stringifyCsv(rows)), rows);
 });
 
+test('CSV object errors retain physical row numbers after blank rows', () => {
+  assert.throws(
+    () => csvToObjects('name\n\nvalid,unexpected\n'),
+    /CSV row 3 has non-empty columns beyond its header/,
+  );
+});
+
 test('argument parser handles values, booleans, and positionals', () => {
   assert.deepEqual(parseArgs(['service-1', '--json', '--timeout', '5']), {
     positional: ['service-1'],
