@@ -30,6 +30,7 @@ export interface RateIngestResult {
 export interface RateStore {
   ingestRates(request: RateIngestRequest): Promise<RateIngestResult>;
   findRate(query: RateDiscoveryQuery): Promise<RateDiscovery>;
+  listRateCards(): Promise<RateCatalog>;
 }
 
 export class RateStoreUnavailableError extends Error {}
@@ -115,6 +116,9 @@ export function createInMemoryRateStore(options: {
       } catch (error) {
         return invalidDiscovery(query, error);
       }
+    },
+    async listRateCards() {
+      return structuredClone(rateCatalog);
     },
   };
 }
@@ -262,6 +266,12 @@ export function openRateStore(options: RateStoreOptions): RateStore {
       } catch (error) {
         return invalidDiscovery(query, error);
       }
+    },
+    async listRateCards() {
+      if (!existsSync(options.indexPath)) {
+        throw new RateStoreUnavailableError(`rate index is required (${options.indexPath})`);
+      }
+      return JSON.parse(readFileSync(options.indexPath, 'utf8')) as RateCatalog;
     },
   };
 }

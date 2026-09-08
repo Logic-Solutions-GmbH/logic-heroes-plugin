@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -45,7 +45,16 @@ const query = {
 
 interface Harness {
   store: RateStore;
+  stageSources(sources: { sourceFile: string; csv: string }[]): void;
   cleanup(): void;
+}
+
+async function ingest(
+  harness: Harness,
+  request: Parameters<RateStore['ingestRates']>[0],
+): ReturnType<RateStore['ingestRates']> {
+  harness.stageSources(request.sources);
+  return harness.store.ingestRates(request);
 }
 
 const adapters: { name: string; create(): Harness }[] = [
@@ -54,12 +63,19 @@ const adapters: { name: string; create(): Harness }[] = [
     create() {
       const workspace = mkdtempSync(join(tmpdir(), 'heroes-csv-rate-store-'));
       const catalogPath = join(workspace, 'heroes-catalog.json');
+      const inbox = join(workspace, 'inbox');
+      const processedDir = join(workspace, 'processed');
+      mkdirSync(inbox);
       writeFileSync(catalogPath, JSON.stringify(heroesCatalog()));
       return {
         store: openRateStore({
           indexPath: join(workspace, 'rate-catalog.json'),
           catalogPath,
+          archive: { inbox, processedDir },
         }),
+        stageSources(sources) {
+          for (const source of sources) writeFileSync(join(inbox, source.sourceFile), source.csv);
+        },
         cleanup: () => rmSync(workspace, { recursive: true, force: true }),
       };
     },
@@ -67,7 +83,11 @@ const adapters: { name: string; create(): Harness }[] = [
   {
     name: 'in-memory',
     create() {
-      return { store: createInMemoryRateStore({ heroesCatalog: heroesCatalog() }), cleanup() {} };
+      return {
+        store: createInMemoryRateStore({ heroesCatalog: heroesCatalog() }),
+        stageSources() {},
+        cleanup() {},
+      };
     },
   },
 ];
@@ -77,7 +97,7 @@ for (const adapter of adapters) {
     test('ingestRates normalizes aliases and preserves approval plus source provenance', async () => {
       const harness = adapter.create();
       try {
-        await harness.store.ingestRates({
+        await ingest(harness, {
           sources: [{ sourceFile: 'rates.csv', csv: csv('card-1', 'rule-1', '900') }],
           approveBy: 'operator',
         });
@@ -100,10 +120,28 @@ for (const adapter of adapters) {
       }
     });
 
+    test('listRateCards returns the stored catalog without exposing mutable state', async () => {
+      const harness = adapter.create();
+      try {
+        await ingest(harness, {
+          sources: [{ sourceFile: 'rates.csv', csv: csv('card-1', 'rule-1', '900') }],
+          approveBy: 'operator',
+        });
+
+        const catalog = await harness.store.listRateCards();
+        assert.equal(catalog.rateCards.length, 1);
+        assert.equal(catalog.rateCards[0].id, 'card-1');
+        catalog.rateCards.length = 0;
+        assert.equal((await harness.store.listRateCards()).rateCards.length, 1);
+      } finally {
+        harness.cleanup();
+      }
+    });
+
     test('findRate escalates when two complete approved current rates apply', async () => {
       const harness = adapter.create();
       try {
-        await harness.store.ingestRates({
+        await ingest(harness, {
           sources: [
             { sourceFile: 'first.csv', csv: csv('card-1', 'rule-1', '900') },
             { sourceFile: 'second.csv', csv: csv('card-2', 'rule-2', '800') },
@@ -127,14 +165,14 @@ for (const adapter of adapters) {
       try {
         const malformed = csv('card-1', 'rule-1', '900').replace(',usd,', ',not-a-currency,');
         await assert.rejects(
-          harness.store.ingestRates({
+          ingest(harness, {
             sources: [{ sourceFile: 'bad.csv', csv: malformed }],
             approveBy: 'operator',
           }),
           /currency must be an ISO 4217 code/,
         );
 
-        await harness.store.ingestRates({
+        await ingest(harness, {
           sources: [{ sourceFile: 'good.csv', csv: csv('card-1', 'rule-1', '900') }],
           approveBy: 'operator',
         });
@@ -147,7 +185,7 @@ for (const adapter of adapters) {
     test('an empty ingestion creates the same usable empty store', async () => {
       const harness = adapter.create();
       try {
-        assert.deepEqual(await harness.store.ingestRates({ sources: [] }), {
+        assert.deepEqual(await ingest(harness, { sources: [] }), {
           files: 0,
           cards: 0,
           catalogHash: heroesCatalog().responseHash,
@@ -155,6 +193,23 @@ for (const adapter of adapters) {
           committed: true,
         });
         assert.equal((await harness.store.findRate(query)).status, 'none');
+      } finally {
+        harness.cleanup();
+      }
+    });
+
+    test('findRate rejects one complete current rate that lacks approval', async () => {
+      const harness = adapter.create();
+      try {
+        await ingest(harness, {
+          sources: [{ sourceFile: 'draft.csv', csv: csv('card-1', 'rule-1', '900') }],
+        });
+
+        const result = await harness.store.findRate(query);
+
+        assert.equal(result.status, 'none');
+        assert.equal(result.match, false);
+        assert.equal(result.candidateTotal, 1);
       } finally {
         harness.cleanup();
       }
