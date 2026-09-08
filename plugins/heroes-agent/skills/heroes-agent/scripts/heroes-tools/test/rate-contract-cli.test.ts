@@ -780,6 +780,56 @@ test('rate discovery returns exit 2 when its configured store is missing', async
   }
 });
 
+test('rate ingestion keeps inbox errors ahead of missing store errors', async () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'heroes-rate-missing-inbox-'));
+  try {
+    const result = await runTool(workspace, [
+      'ingest-rates.ts', join(workspace, 'missing-inbox'),
+      '--catalog', join(workspace, 'missing-catalog.json'),
+      '--index', join(workspace, 'missing-index.json'),
+    ]);
+
+    assert.equal(result.code, 1, result.stdout + result.stderr);
+    assert.match(result.stderr, /Inbox not found/);
+    assert.doesNotMatch(result.stderr, /Heroes catalog not found/);
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test('rate ingestion handles pending transactions before inbox and store checks', async () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'heroes-rate-pending-order-'));
+  try {
+    const indexPath = join(workspace, 'missing-index.json');
+    const transactionPath = `${indexPath}.transaction.json`;
+    const transaction = {
+      inbox: join(workspace, 'missing-inbox'),
+      processedDir: join(workspace, 'processed'),
+      files: [],
+      phase: 'preparing',
+    };
+    writeFileSync(transactionPath, JSON.stringify(transaction));
+    const args = [
+      'ingest-rates.ts', transaction.inbox,
+      '--catalog', join(workspace, 'missing-catalog.json'),
+      '--index', indexPath,
+    ];
+
+    const normal = await runTool(workspace, args);
+    assert.equal(normal.code, 1, normal.stdout + normal.stderr);
+    assert.match(normal.stderr, /Inbox not found/);
+    assert.equal(existsSync(transactionPath), false);
+
+    writeFileSync(transactionPath, JSON.stringify(transaction));
+    const preview = await runTool(workspace, [...args, '--dry-run']);
+    assert.equal(preview.code, 1, preview.stdout + preview.stderr);
+    assert.match(preview.stderr, /pending import transaction/);
+    assert.equal(existsSync(transactionPath), true);
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
 test('rate discovery returns invalid exit 4 for malformed canonical JSON', async () => {
   const workspace = mkdtempSync(join(tmpdir(), 'heroes-rate-malformed-'));
   try {
