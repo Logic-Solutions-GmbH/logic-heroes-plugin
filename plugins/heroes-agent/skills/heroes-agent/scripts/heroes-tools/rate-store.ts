@@ -276,11 +276,20 @@ export function openRateStore(options: RateStoreOptions): RateStore {
   };
 }
 
+function configuredRateStorePaths(flags: Record<string, string | boolean>): {
+  indexPath: string;
+  catalogPath: string;
+} {
+  return {
+    indexPath: flagString(flags, 'index') ?? 'self/rate-book/index/rate-catalog.json',
+    catalogPath: flagString(flags, 'catalog') ?? 'self/rate-book/index/heroes-catalog.json',
+  };
+}
+
 export function openConfiguredRateStore(
   flags: Record<string, string | boolean>,
 ): { store: RateStore; writeLocation: string } {
-  const indexPath = flagString(flags, 'index') ?? 'self/rate-book/index/rate-catalog.json';
-  const catalogPath = flagString(flags, 'catalog') ?? 'self/rate-book/index/heroes-catalog.json';
+  const { indexPath, catalogPath } = configuredRateStorePaths(flags);
   return {
     store: openRateStore({ indexPath, catalogPath }),
     writeLocation: indexPath,
@@ -291,8 +300,7 @@ export function prepareConfiguredRateIngestion(
   flags: Record<string, string | boolean>,
   dryRun: boolean,
 ): (source: { inbox: string; processedDir: string }) => { store: RateStore; writeLocation: string } {
-  const indexPath = flagString(flags, 'index') ?? 'self/rate-book/index/rate-catalog.json';
-  const catalogPath = flagString(flags, 'catalog') ?? 'self/rate-book/index/heroes-catalog.json';
+  const { indexPath, catalogPath } = configuredRateStorePaths(flags);
   prepareRateStoreTransaction(indexPath, dryRun ? 'refuse' : 'recover');
   return ({ inbox, processedDir }) => ({
     store: openRateStore({
