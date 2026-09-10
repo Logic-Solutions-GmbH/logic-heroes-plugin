@@ -44,19 +44,28 @@ else if (args[0] === 'projects' && args[1] === 'list') {
     { id: 'abcdefghijklmnopqrst', name: 'Fresh Test', region: 'eu-central-1' },
   ]));
 }
-else if (args.includes('migration') && args.includes('list')) console.log(JSON.stringify([
-  process.env.FAKE_SUPABASE_MODE === 'divergent'
-    ? { local: null, remote: '20260907000100', time: '2026-09-07T00:01:00Z' }
-    : process.env.FAKE_SUPABASE_MODE === 'empty-history'
-      ? { local: null, remote: null, time: '' }
-    : {
-        local: '20260908000100',
-        remote: existsSync(process.env.FAKE_SUPABASE_STATE) && process.env.FAKE_SUPABASE_MODE !== 'partial'
-          ? '20260908000100'
-          : null,
-        time: '2026-09-08T00:01:00Z',
-      },
-]));
+else if (args.includes('migration') && args.includes('list')) {
+  if (process.env.FAKE_SUPABASE_MODE === 'machine-output' && !args.includes('--output-format')) {
+    console.log('Local | Remote | Time (UTC)');
+  } else {
+    const migrations = [
+      process.env.FAKE_SUPABASE_MODE === 'divergent'
+        ? { local: null, remote: '20260907000100', time: '2026-09-07T00:01:00Z' }
+        : process.env.FAKE_SUPABASE_MODE === 'empty-history'
+          ? { local: null, remote: null, time: '' }
+        : {
+            local: '20260908000100',
+            remote: existsSync(process.env.FAKE_SUPABASE_STATE) && process.env.FAKE_SUPABASE_MODE !== 'partial'
+              ? '20260908000100'
+              : null,
+            time: '2026-09-08T00:01:00Z',
+          },
+    ];
+    console.log(JSON.stringify(args.includes('--output-format')
+      ? { migrations, message: 'Migrations listed' }
+      : migrations));
+  }
+}
 else if (args.includes('db') && args.includes('push') && args.includes('--dry-run')) {
   if (process.env.FAKE_SUPABASE_MODE === 'history-plan') {
     console.error('Local migration files to be inserted before the last migration on remote database.');
@@ -238,6 +247,7 @@ test('apply verifies the migration and a second run reports a safe no-op', () =>
       HEROES_SUPABASE_CLI: fake.cli,
       FAKE_SUPABASE_LOG: fake.log,
       FAKE_SUPABASE_STATE: fake.state,
+      FAKE_SUPABASE_MODE: 'machine-output',
     };
 
     const first = spawnSync(
@@ -261,6 +271,11 @@ test('apply verifies the migration and a second run reports a safe no-op', () =>
     );
     const calls = readFileSync(fake.log, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
     const commands = calls.map((call) => call.args.join(' '));
+    assert.equal(commands.some((command) => command.includes(' link ')), false);
+    const remoteCommands = commands.filter(
+      (command) => command.includes('migration list') || command.includes('db push'),
+    );
+    assert.ok(remoteCommands.every((command) => command.includes('--project-ref abcdefghijklmnopqrst')));
     assert.equal(commands.some((command) => command.includes('migration repair')), false);
     assert.equal(commands.filter((command) => command.includes('db push') && command.includes('--dry-run')).length, 2);
     assert.equal(commands.filter((command) => command.includes('db push') && !command.includes('--dry-run')).length, 1);

@@ -42,7 +42,7 @@ Run all commands from the peer workspace.
 
 The second run must report `already up to date; no migration applied`.
 
-The command uses pinned Supabase CLI `2.117.0`. It executes `projects list`, `link`, `migration list`, `db push --dry-run`, `db push`, then `migration list`. Credentials pass only through the process environment.
+The command uses pinned Supabase CLI `2.117.0`. It executes `projects list`, then uses the verified project ref for `migration list`, `db push --dry-run`, `db push`, and final `migration list`. It does not depend on local CLI link state. Credentials pass only through the process environment.
 
 The ignored `self/supabase/binding.json` file records the exact Heroes tenant, project reference, project name, and region. The command refuses a different tenant or project selection.
 
