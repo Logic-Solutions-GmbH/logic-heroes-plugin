@@ -245,18 +245,12 @@ function workdirArgs(projectDir: string, args: string[]): string[] {
   return ['--workdir', projectDir, ...args];
 }
 
-function linkProject(projectDir: string, projectRef: string): void {
-  const result = callCli(workdirArgs(projectDir, ['link', '--project-ref', projectRef, '--yes']));
-  if (result.status === 0) return;
-  if (isAuthenticationFailure(result)) {
-    throw failure('authentication_failed', 'Supabase database authentication failed. Check the local database password.');
-  }
-  throw failure('project_unreachable', 'Supabase project connection failed. The selected project is unreachable.');
-}
-
-function migrationList(projectDir: string): unknown[] {
+function migrationList(projectDir: string, projectRef: string): unknown[] {
   const result = callCli(
-    workdirArgs(projectDir, ['migration', 'list', '--linked', '--output', 'json']),
+    workdirArgs(projectDir, [
+      '--output-format', 'json',
+      'migration', 'list', '--project-ref', projectRef,
+    ]),
   );
   if (result.status !== 0) {
     if (isAuthenticationFailure(result)) {
@@ -265,7 +259,8 @@ function migrationList(projectDir: string): unknown[] {
     throw failure('migration_history_mismatch', 'Supabase migration history could not be read. Do not run migration repair automatically.');
   }
   try {
-    const rows = JSON.parse(result.stdout);
+    const response = JSON.parse(result.stdout) as { migrations?: unknown };
+    const rows = response?.migrations;
     if (!Array.isArray(rows)) throw new Error('not an array');
     return rows;
   } catch {
@@ -318,9 +313,9 @@ function historyIsCurrent(rows: unknown[], expectedVersions: string[]): boolean 
   );
 }
 
-function pushMigrations(projectDir: string, dryRun: boolean): void {
+function pushMigrations(projectDir: string, projectRef: string, dryRun: boolean): void {
   const args = workdirArgs(projectDir, [
-    'db', 'push', '--linked', ...(dryRun ? ['--dry-run'] : []), '--yes',
+    'db', 'push', '--project-ref', projectRef, ...(dryRun ? ['--dry-run'] : []), '--yes',
   ]);
   const result = callCli(args);
   if (result.status === 0) return;
@@ -353,11 +348,10 @@ run(async () => {
   const migrationVersions = prepareProject(projectDir);
   const attemptPath = join(process.cwd(), 'self', 'supabase', 'migration-attempt.json');
   refusePendingAttempt(attemptPath);
-  linkProject(projectDir, projectRef);
-  const before = migrationList(projectDir);
+  const before = migrationList(projectDir, projectRef);
   assertHistoryMatches(before, migrationVersions, 'before');
   const wasUpToDate = historyIsCurrent(before, migrationVersions);
-  pushMigrations(projectDir, true);
+  pushMigrations(projectDir, projectRef, true);
 
   heading('Supabase bootstrap');
   kv('Heroes tenant', tenantKey);
@@ -375,8 +369,8 @@ run(async () => {
   }
 
   writeAttempt(attemptPath, binding, migrationVersions);
-  pushMigrations(projectDir, false);
-  const after = migrationList(projectDir);
+  pushMigrations(projectDir, projectRef, false);
+  const after = migrationList(projectDir, projectRef);
   assertHistoryMatches(after, migrationVersions, 'after');
   unlinkSync(attemptPath);
   kv('status', 'connected; migrations verified');
