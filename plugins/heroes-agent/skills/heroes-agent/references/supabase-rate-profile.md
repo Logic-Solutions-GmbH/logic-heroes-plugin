@@ -39,7 +39,7 @@ The required semantic fields cover:
 - approval status, actor, time, and content hash;
 - Heroes catalog response hash and fetch time.
 
-The idempotency declaration must combine tenant key, card ID, rule ID, and source hash. The physical constraint name can differ by schema. The approval rule requires a valid content hash. The current rule compares the saved catalog hash with the active Heroes catalog. The validity rule requires the saved timeframe to contain the query window.
+The idempotency declaration must combine tenant key, card ID, rule ID, and source hash on one named table. The physical constraint name can differ by schema. The approval rule requires a valid content hash. The current rule compares the saved catalog hash with the active Heroes catalog. The validity rule requires the saved timeframe to contain the query window.
 
 ## Closed failures
 
@@ -47,7 +47,7 @@ The parser rejects:
 
 - an unsupported profile version or status;
 - a tenant or project mismatch;
-- a missing or duplicate semantic mapping;
+- a missing or duplicate semantic mapping, or two semantics that use one physical path;
 - an unknown or unsuitable resource;
 - a missing mapped-table RLS declaration;
 - a direct `PUBLIC`, `anon`, or `authenticated` grant;

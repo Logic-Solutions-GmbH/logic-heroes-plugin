@@ -85,7 +85,7 @@ export interface RateProfile {
       rule: 'contains-query-window';
     };
     provenance: { fields: RateSemantic[] };
-    idempotency: { fields: RateSemantic[]; constraint: string };
+    idempotency: { fields: RateSemantic[]; resource: string; constraint: string };
   };
 }
 
@@ -108,6 +108,7 @@ export function resolveRateField(
   profile: RateProfile,
   semantic: RateSemantic,
 ): { resource: RateProfile['resources'][number]; path: string } {
+  if (profile.status !== 'confirmed') throw new Error('Confirmed rate profile required');
   const field = profile.fields.find((candidate) => candidate.semantic === semantic);
   if (!field) throw new Error(`Rate profile does not map semantic field: ${semantic}`);
   const resource = profile.resources.find((candidate) => candidate.id === field.resource);
@@ -119,6 +120,7 @@ export function resolveRateOperation(
   profile: RateProfile,
   operation: keyof RateProfile['operations'],
 ): RateProfile['resources'][number] {
+  if (profile.status !== 'confirmed') throw new Error('Confirmed rate profile required');
   const resourceId = profile.operations[operation].resource;
   const resource = profile.resources.find((candidate) => candidate.id === resourceId);
   if (!resource) throw new Error(`Rate profile uses unknown resource: ${resourceId}`);
@@ -230,6 +232,7 @@ function parseFields(value: unknown, resources: RateProfile['resources']): RateP
   });
   const semantics = fields.map(({ semantic }) => semantic);
   unique(semantics, 'semantic field');
+  unique(fields.map(({ resource, path }) => `${resource}/${path}`), 'physical field');
   for (const semantic of REQUIRED_RATE_SEMANTICS) {
     if (!semantics.includes(semantic)) throw new Error(`missing required semantic field: ${semantic}`);
   }
@@ -302,6 +305,16 @@ function validateControls(
     ['tenant.key', 'card.id', 'rule.id', 'source.sourceHash'],
     'idempotency field',
   );
+  const idempotencyResource = text(idempotency.resource, 'controls.idempotency.resource');
+  if (!resources.some(({ id, kind }) => id === idempotencyResource && kind === 'table')) {
+    throw new Error(`idempotency resource must be a table: ${idempotencyResource}`);
+  }
+  for (const semantic of idempotencyFields) {
+    const mapping = fields.find((field) => field.semantic === semantic);
+    if (mapping?.resource !== idempotencyResource) {
+      throw new Error(`idempotency field ${semantic} must map to table resource: ${idempotencyResource}`);
+    }
+  }
   const constraint = text(idempotency.constraint, 'controls.idempotency.constraint');
   if (!/^[a-z_][a-z0-9_]*$/.test(constraint)) throw new Error(`Invalid idempotency constraint: ${constraint}`);
 
@@ -320,7 +333,7 @@ function validateControls(
     current: { catalogHashField: 'catalog.responseHash', rule: 'equals-active-heroes-catalog' },
     validity: { timeframesField: 'rule.timeframes', rule: 'contains-query-window' },
     provenance: { fields: provenanceFields },
-    idempotency: { fields: idempotencyFields, constraint },
+    idempotency: { fields: idempotencyFields, resource: idempotencyResource, constraint },
   };
 }
 

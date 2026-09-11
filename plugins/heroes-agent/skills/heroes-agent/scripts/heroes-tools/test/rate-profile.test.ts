@@ -66,6 +66,11 @@ test('invalid profiles fail closed with actionable errors', () => {
       message: /semantic field is ambiguous: tenant\.key/,
     },
     {
+      name: 'physical field is ambiguous',
+      change: (profile) => profile.fields.find((field: any) => field.semantic === 'charge.currency').path = 'amount',
+      message: /physical field is ambiguous: store\/amount/,
+    },
+    {
       name: 'tenant isolation declaration is missing',
       change: (profile) => delete profile.controls.tenantIsolation,
       message: /tenant isolation must use database RLS/,
@@ -119,6 +124,16 @@ test('invalid profiles fail closed with actionable errors', () => {
       name: 'idempotency declaration is incomplete',
       change: (profile) => profile.controls.idempotency.fields = ['tenant.key', 'card.id'],
       message: /idempotency field is missing:/,
+    },
+    {
+      name: 'idempotency fields span tables',
+      change: (profile) => {
+        profile.resources.push({ id: 'archive', kind: 'table', name: 'private_rates.rate_evidence' });
+        profile.controls.tenantIsolation.protectedResources.push('archive');
+        profile.controls.grants.coveredResources.push('archive');
+        profile.fields.find((field: any) => field.semantic === 'source.sourceHash').resource = 'archive';
+      },
+      message: /idempotency field source\.sourceHash must map to table resource: store/,
     },
     {
       name: 'tenant identity differs',
@@ -187,6 +202,8 @@ test('an unconfirmed proposal cannot be persisted or loaded for operational use'
     const proposal = fixture('rate-profile-reference.json') as any;
     proposal.status = 'proposal';
     const parsed = parseRateProfile(proposal, expectedIdentity);
+    assert.throws(() => resolveRateField(parsed, 'charge.currency'), /Confirmed rate profile required/);
+    assert.throws(() => resolveRateOperation(parsed, 'discover'), /Confirmed rate profile required/);
     assert.throws(
       () => persistConfirmedRateProfile(workspace, parsed),
       /Only a confirmed rate profile can be persisted/,
