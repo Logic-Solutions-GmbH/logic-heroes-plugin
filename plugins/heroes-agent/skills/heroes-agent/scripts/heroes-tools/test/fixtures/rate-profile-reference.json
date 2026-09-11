@@ -11,9 +11,9 @@
     { "id": "write", "kind": "function", "name": "private_rates.ingest_rate_card" }
   ],
   "operations": {
-    "ingest": { "resource": "write", "contract": "rate-contract-1.0" },
-    "discover": { "resource": "read", "contract": "rate-contract-1.0" },
-    "list": { "resource": "read", "contract": "rate-contract-1.0" }
+    "ingest": { "resource": "write", "contract": "rate-contract-1.0", "securityMode": "invoker", "tenantEnforcement": { "method": "database-rls", "tenantField": "tenant.key", "contextKey": "heroes_tenant_key" } },
+    "discover": { "resource": "read", "contract": "rate-contract-1.0", "securityMode": "invoker", "tenantEnforcement": { "method": "database-rls", "tenantField": "tenant.key", "contextKey": "heroes_tenant_key" } },
+    "list": { "resource": "read", "contract": "rate-contract-1.0", "securityMode": "invoker", "tenantEnforcement": { "method": "database-rls", "tenantField": "tenant.key", "contextKey": "heroes_tenant_key" } }
   },
   "fields": [
     { "semantic": "tenant.key", "resource": "store", "path": "tenant_key" },

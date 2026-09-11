@@ -159,6 +159,39 @@ test('invalid profiles fail closed with actionable errors', () => {
   }
 });
 
+test('every operation entry point requires invoker RLS bound to tenant context', () => {
+  const base = fixture('rate-profile-reference.json') as any;
+  for (const operation of ['ingest', 'discover', 'list']) {
+    const missing = structuredClone(base);
+    delete missing.operations[operation].tenantEnforcement;
+    assert.throws(
+      () => parseRateProfile(missing, expectedIdentity),
+      new RegExp(`Operation ${operation} must declare database RLS tenant enforcement`),
+    );
+
+    const definer = structuredClone(base);
+    definer.operations[operation].securityMode = 'definer';
+    assert.throws(
+      () => parseRateProfile(definer, expectedIdentity),
+      new RegExp(`Operation ${operation} must use invoker security`),
+    );
+
+    const callerFilter = structuredClone(base);
+    callerFilter.operations[operation].tenantEnforcement.method = 'caller-filter';
+    assert.throws(
+      () => parseRateProfile(callerFilter, expectedIdentity),
+      new RegExp(`Operation ${operation} must declare database RLS tenant enforcement`),
+    );
+
+    const wrongTenant = structuredClone(base);
+    wrongTenant.operations[operation].tenantEnforcement.tenantField = 'card.id';
+    assert.throws(
+      () => parseRateProfile(wrongTenant, expectedIdentity),
+      new RegExp(`Operation ${operation} must bind tenant.key to heroes_tenant_key`),
+    );
+  }
+});
+
 test('confirmed profile persists canonically and reloads in a fresh process', () => {
   const workspace = mkdtempSync(join(tmpdir(), 'heroes-rate-profile-'));
   try {

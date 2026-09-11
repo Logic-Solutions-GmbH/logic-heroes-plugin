@@ -40,6 +40,17 @@ export const REQUIRED_RATE_SEMANTICS = [
 export type RateSemantic = typeof REQUIRED_RATE_SEMANTICS[number];
 export type RateResourceKind = 'table' | 'view' | 'function';
 
+interface RateOperationDeclaration {
+  resource: string;
+  contract: 'rate-contract-1.0';
+  securityMode: 'invoker';
+  tenantEnforcement: {
+    method: 'database-rls';
+    tenantField: 'tenant.key';
+    contextKey: 'heroes_tenant_key';
+  };
+}
+
 export interface RateProfileIdentity {
   heroesTenantKey: string;
   supabaseProjectRef: string;
@@ -50,11 +61,7 @@ export interface RateProfile {
   status: 'proposal' | 'confirmed';
   binding: RateProfileIdentity;
   resources: { id: string; kind: RateResourceKind; name: string }[];
-  operations: {
-    ingest: { resource: string; contract: 'rate-contract-1.0' };
-    discover: { resource: string; contract: 'rate-contract-1.0' };
-    list: { resource: string; contract: 'rate-contract-1.0' };
-  };
+  operations: Record<'ingest' | 'discover' | 'list', RateOperationDeclaration>;
   fields: { semantic: RateSemantic; resource: string; path: string }[];
   controls: {
     tenantIsolation: {
@@ -95,6 +102,7 @@ export interface NormalizedRateProfileContract {
   operations: ('discover' | 'ingest' | 'list')[];
   controls: {
     tenantIsolation: 'rls';
+    operationTenantIsolation: 'invoker-database-rls';
     grants: 'private';
     approval: 'valid-content-hash';
     current: 'equals-active-heroes-catalog';
@@ -194,7 +202,33 @@ function parseOperations(
       'rate-contract-1.0',
       `Operation ${operation} must use rate-contract-1.0`,
     );
-    return [operation, { resource, contract: 'rate-contract-1.0' as const }];
+    expect(
+      declaration.securityMode,
+      'invoker',
+      `Operation ${operation} must use invoker security`,
+    );
+    if (!declaration.tenantEnforcement) {
+      throw new Error(`Operation ${operation} must declare database RLS tenant enforcement`);
+    }
+    const tenant = record(declaration.tenantEnforcement, `operations.${operation}.tenantEnforcement`);
+    expect(
+      tenant.method,
+      'database-rls',
+      `Operation ${operation} must declare database RLS tenant enforcement`,
+    );
+    if (tenant.tenantField !== 'tenant.key' || tenant.contextKey !== 'heroes_tenant_key') {
+      throw new Error(`Operation ${operation} must bind tenant.key to heroes_tenant_key`);
+    }
+    return [operation, {
+      resource,
+      contract: 'rate-contract-1.0' as const,
+      securityMode: 'invoker' as const,
+      tenantEnforcement: {
+        method: 'database-rls' as const,
+        tenantField: 'tenant.key' as const,
+        contextKey: 'heroes_tenant_key' as const,
+      },
+    }];
   })) as RateProfile['operations'];
   const resourcesById = new Map(resources.map((resource) => [resource.id, resource]));
   for (const [operation, declaration] of Object.entries(operations)) {
@@ -374,6 +408,7 @@ export function normalizeRateProfile(profile: RateProfile): NormalizedRateProfil
     operations: ['discover', 'ingest', 'list'],
     controls: {
       tenantIsolation: 'rls',
+      operationTenantIsolation: 'invoker-database-rls',
       grants: 'private',
       approval: profile.controls.approval.rule,
       current: profile.controls.current.rule,
