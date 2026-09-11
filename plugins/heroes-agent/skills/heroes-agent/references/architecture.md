@@ -8,6 +8,8 @@ CLI orchestration owns rate-inbox archival after successful persistence. `RateSt
 
 One peer workspace binds one Heroes tenant to one explicit Supabase project. The ignored local binding records both identities. The bootstrap command verifies the selected project before any migration. Supabase stores private operational state; it never replaces authoritative Heroes network state.
 
+One confirmed rate profile maps the stable rate contract to the bound Supabase project. Adapters resolve resources and fields through this profile. They do not infer a physical schema. A proposal cannot support operations.
+
 One peer workspace must never contain credentials for multiple tenants. `self/.env` deliberately wins over root `.env` and inherited shell values. Do not centralize credentials across peers.
 
 The runtime uses Node's filesystem APIs and HTTPS `fetch`; no MCP server is needed for local Codex, Claude Code, or Cursor agents. Full ChatGPT web parity would require a hosted MCP service, durable storage/intake redesign, and user-scoped authentication such as OAuth. That is a separate public API and is not implemented here.
