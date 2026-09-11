@@ -1,0 +1,83 @@
+{
+  "profileVersion": "1.0",
+  "status": "confirmed",
+  "binding": {
+    "heroesTenantKey": "acme",
+    "supabaseProjectRef": "abcdefghijklmnopqrst"
+  },
+  "resources": [
+    { "id": "store", "kind": "table", "name": "private_rates.rate_records" },
+    { "id": "read", "kind": "view", "name": "private_rates.approved_rate_rules" },
+    { "id": "write", "kind": "function", "name": "private_rates.ingest_rate_card" }
+  ],
+  "operations": {
+    "ingest": { "resource": "write", "contract": "rate-contract-1.0" },
+    "discover": { "resource": "read", "contract": "rate-contract-1.0" },
+    "list": { "resource": "read", "contract": "rate-contract-1.0" }
+  },
+  "fields": [
+    { "semantic": "tenant.key", "resource": "store", "path": "tenant_key" },
+    { "semantic": "card.id", "resource": "store", "path": "card_id" },
+    { "semantic": "card.journeyType", "resource": "store", "path": "journey_type" },
+    { "semantic": "rule.id", "resource": "store", "path": "rule_id" },
+    { "semantic": "rule.serviceKey", "resource": "store", "path": "service_key" },
+    { "semantic": "rule.locodes", "resource": "store", "path": "locodes" },
+    { "semantic": "rule.timeframes", "resource": "store", "path": "timeframes" },
+    { "semantic": "rule.assetTypes", "resource": "store", "path": "asset_types" },
+    { "semantic": "rule.participants", "resource": "store", "path": "participants" },
+    { "semantic": "rule.strategy", "resource": "store", "path": "strategy" },
+    { "semantic": "charge.chargeKey", "resource": "store", "path": "charge_key" },
+    { "semantic": "charge.amount", "resource": "store", "path": "amount" },
+    { "semantic": "charge.currency", "resource": "store", "path": "currency" },
+    { "semantic": "charge.basis", "resource": "store", "path": "basis" },
+    { "semantic": "charge.minimum", "resource": "store", "path": "minimum" },
+    { "semantic": "charge.maximum", "resource": "store", "path": "maximum" },
+    { "semantic": "charge.tiers", "resource": "store", "path": "tiers" },
+    { "semantic": "rule.conditions", "resource": "store", "path": "conditions" },
+    { "semantic": "source.sourceFile", "resource": "store", "path": "source_file" },
+    { "semantic": "source.sourceRef", "resource": "store", "path": "source_ref" },
+    { "semantic": "source.sourceHash", "resource": "store", "path": "source_hash" },
+    { "semantic": "approval.status", "resource": "store", "path": "approval_status" },
+    { "semantic": "approval.approvedBy", "resource": "store", "path": "approved_by" },
+    { "semantic": "approval.approvedAt", "resource": "store", "path": "approved_at" },
+    { "semantic": "approval.contentHash", "resource": "store", "path": "content_hash" },
+    { "semantic": "catalog.responseHash", "resource": "store", "path": "catalog_response_hash" },
+    { "semantic": "catalog.fetchedAt", "resource": "store", "path": "catalog_fetched_at" }
+  ],
+  "controls": {
+    "tenantIsolation": {
+      "method": "rls",
+      "tenantField": "tenant.key",
+      "protectedResources": ["store"]
+    },
+    "grants": {
+      "public": "none",
+      "anon": "none",
+      "authenticated": "none",
+      "operationalRole": "heroes_agent",
+      "coveredResources": ["read", "store", "write"]
+    },
+    "approval": {
+      "statusField": "approval.status",
+      "approvedByField": "approval.approvedBy",
+      "approvedAtField": "approval.approvedAt",
+      "contentHashField": "approval.contentHash",
+      "rule": "valid-content-hash"
+    },
+    "current": {
+      "catalogHashField": "catalog.responseHash",
+      "rule": "equals-active-heroes-catalog"
+    },
+    "validity": {
+      "timeframesField": "rule.timeframes",
+      "rule": "contains-query-window"
+    },
+    "provenance": {
+      "fields": ["catalog.fetchedAt", "catalog.responseHash", "source.sourceFile", "source.sourceHash", "source.sourceRef"]
+    },
+    "idempotency": {
+      "fields": ["card.id", "rule.id", "source.sourceHash", "tenant.key"],
+      "constraint": "rate_record_identity"
+    }
+  }
+}

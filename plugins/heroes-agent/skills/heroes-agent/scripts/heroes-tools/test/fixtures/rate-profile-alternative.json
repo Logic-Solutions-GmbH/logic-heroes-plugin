@@ -1,0 +1,83 @@
+{
+  "profileVersion": "1.0",
+  "status": "confirmed",
+  "binding": {
+    "heroesTenantKey": "acme",
+    "supabaseProjectRef": "abcdefghijklmnopqrst"
+  },
+  "resources": [
+    { "id": "store", "kind": "table", "name": "operations.tariff_documents" },
+    { "id": "read", "kind": "view", "name": "operations.current_tariffs" },
+    { "id": "write", "kind": "function", "name": "operations.accept_tariff_document" }
+  ],
+  "operations": {
+    "ingest": { "resource": "write", "contract": "rate-contract-1.0" },
+    "discover": { "resource": "read", "contract": "rate-contract-1.0" },
+    "list": { "resource": "read", "contract": "rate-contract-1.0" }
+  },
+  "fields": [
+    { "semantic": "tenant.key", "resource": "store", "path": "/owner/workspace" },
+    { "semantic": "card.id", "resource": "store", "path": "/document/identity" },
+    { "semantic": "card.journeyType", "resource": "store", "path": "/document/journey" },
+    { "semantic": "rule.id", "resource": "store", "path": "/lines/id" },
+    { "semantic": "rule.serviceKey", "resource": "store", "path": "/lines/service" },
+    { "semantic": "rule.locodes", "resource": "store", "path": "/lines/applicability/places" },
+    { "semantic": "rule.timeframes", "resource": "store", "path": "/lines/applicability/windows" },
+    { "semantic": "rule.assetTypes", "resource": "store", "path": "/lines/applicability/equipment" },
+    { "semantic": "rule.participants", "resource": "store", "path": "/lines/applicability/parties" },
+    { "semantic": "rule.strategy", "resource": "store", "path": "/lines/applicability/plan" },
+    { "semantic": "charge.chargeKey", "resource": "store", "path": "/lines/prices/key" },
+    { "semantic": "charge.amount", "resource": "store", "path": "/lines/prices/value" },
+    { "semantic": "charge.currency", "resource": "store", "path": "/lines/prices/isoCurrency" },
+    { "semantic": "charge.basis", "resource": "store", "path": "/lines/prices/unit" },
+    { "semantic": "charge.minimum", "resource": "store", "path": "/lines/prices/floor" },
+    { "semantic": "charge.maximum", "resource": "store", "path": "/lines/prices/ceiling" },
+    { "semantic": "charge.tiers", "resource": "store", "path": "/lines/prices/bands" },
+    { "semantic": "rule.conditions", "resource": "store", "path": "/lines/limits" },
+    { "semantic": "source.sourceFile", "resource": "store", "path": "/evidence/file" },
+    { "semantic": "source.sourceRef", "resource": "store", "path": "/evidence/reference" },
+    { "semantic": "source.sourceHash", "resource": "store", "path": "/evidence/digest" },
+    { "semantic": "approval.status", "resource": "store", "path": "/control/decision" },
+    { "semantic": "approval.approvedBy", "resource": "store", "path": "/control/actor" },
+    { "semantic": "approval.approvedAt", "resource": "store", "path": "/control/time" },
+    { "semantic": "approval.contentHash", "resource": "store", "path": "/control/seal" },
+    { "semantic": "catalog.responseHash", "resource": "store", "path": "/catalog/digest" },
+    { "semantic": "catalog.fetchedAt", "resource": "store", "path": "/catalog/time" }
+  ],
+  "controls": {
+    "tenantIsolation": {
+      "method": "rls",
+      "tenantField": "tenant.key",
+      "protectedResources": ["store"]
+    },
+    "grants": {
+      "public": "none",
+      "anon": "none",
+      "authenticated": "none",
+      "operationalRole": "heroes_runtime",
+      "coveredResources": ["read", "store", "write"]
+    },
+    "approval": {
+      "statusField": "approval.status",
+      "approvedByField": "approval.approvedBy",
+      "approvedAtField": "approval.approvedAt",
+      "contentHashField": "approval.contentHash",
+      "rule": "valid-content-hash"
+    },
+    "current": {
+      "catalogHashField": "catalog.responseHash",
+      "rule": "equals-active-heroes-catalog"
+    },
+    "validity": {
+      "timeframesField": "rule.timeframes",
+      "rule": "contains-query-window"
+    },
+    "provenance": {
+      "fields": ["catalog.fetchedAt", "catalog.responseHash", "source.sourceFile", "source.sourceHash", "source.sourceRef"]
+    },
+    "idempotency": {
+      "fields": ["card.id", "rule.id", "source.sourceHash", "tenant.key"],
+      "constraint": "tariff_document_identity"
+    }
+  }
+}

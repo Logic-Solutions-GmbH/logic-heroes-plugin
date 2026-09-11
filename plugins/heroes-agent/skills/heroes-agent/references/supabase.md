@@ -4,6 +4,8 @@ Supabase is private operational memory. Heroes remains authoritative for network
 
 S3 connects one peer workspace to one explicit Supabase project. It creates only the private `heroes_agent_control` bootstrap schema. Rate tables, grants, RLS policies, and rate mappings belong to S4.
 
+S4 rate mapping uses one confirmed private profile. See `supabase-rate-profile.md` for its format, confirmation protocol, and closed failures.
+
 ## Required human values
 
 Ask the human for one Supabase project reference. Never infer it from a project name.

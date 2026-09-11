@@ -158,6 +158,8 @@ Confirm the shown tenant and project. Then run the same command without `--dry-r
 
 The ignored `self/supabase/binding.json` file makes the tenant and project binding inspectable. The versioned migration creates only the private `heroes_agent_control` bootstrap schema. S4 owns rate schemas, grants, RLS policies, and user-specific mappings.
 
+S4 rate mapping persists a human-confirmed, versioned profile at ignored `self/supabase/rate-profile.json`. It maps stable rate semantics to qualified user tables, views, functions, columns, or JSON Pointer paths. It contains no SQL or credential. The loader refuses proposals and any tenant or project mismatch. See `skills/heroes-agent/references/supabase-rate-profile.md`.
+
 See `skills/heroes-agent/references/supabase.md` for the exact failure meanings and recovery boundary.
 
 ## Peer initialization and authentication

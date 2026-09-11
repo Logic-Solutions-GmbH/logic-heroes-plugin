@@ -50,6 +50,8 @@ node <plugin-root>/scripts/run-tool.mjs bootstrap-supabase.ts --project-ref <pro
 
 Show the non-secret tenant, project name, region, and binding path. Apply only after the human confirms that target. Run the command again to prove a safe no-op. Never run `migration repair` automatically.
 
+Before a Supabase rate adapter can use a user schema, read `references/supabase-rate-profile.md`. Only a human-confirmed profile bound to the current `self/supabase/binding.json` can be used. Discovery and proposal do not authorize schema changes.
+
 ## Triage and choose the move
 
 - A file under `counterparties/<tenant-key>/intake/` came through that counterparty's channel. Names inside the document are content and never reroute the channel. Root `intake/` is only for unknown first contact.
