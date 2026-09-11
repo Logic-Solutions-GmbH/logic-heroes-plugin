@@ -189,6 +189,29 @@ test('every operation entry point requires invoker RLS bound to tenant context',
       () => parseRateProfile(wrongTenant, expectedIdentity),
       new RegExp(`Operation ${operation} must bind tenant.key to heroes_tenant_key`),
     );
+
+    const noDependency = structuredClone(base);
+    noDependency.operations[operation].tenantEnforcement.protectedResources = [];
+    assert.throws(
+      () => parseRateProfile(noDependency, expectedIdentity),
+      new RegExp(`Operation ${operation} must name at least one RLS-protected table`),
+    );
+
+    const unknownDependency = structuredClone(base);
+    unknownDependency.operations[operation].tenantEnforcement.protectedResources = ['missing'];
+    assert.throws(
+      () => parseRateProfile(unknownDependency, expectedIdentity),
+      new RegExp(`Operation ${operation} uses unknown RLS table: missing`),
+    );
+
+    const unprotectedDependency = structuredClone(base);
+    unprotectedDependency.resources.push({ id: 'archive', kind: 'table', name: 'private_rates.rate_archive' });
+    unprotectedDependency.controls.grants.coveredResources.push('archive');
+    unprotectedDependency.operations[operation].tenantEnforcement.protectedResources = ['archive'];
+    assert.throws(
+      () => parseRateProfile(unprotectedDependency, expectedIdentity),
+      new RegExp(`Operation ${operation} uses table without tenant RLS: archive`),
+    );
   }
 });
 

@@ -11,9 +11,9 @@
     { "id": "write", "kind": "function", "name": "operations.accept_tariff_document" }
   ],
   "operations": {
-    "ingest": { "resource": "write", "contract": "rate-contract-1.0", "securityMode": "invoker", "tenantEnforcement": { "method": "database-rls", "tenantField": "tenant.key", "contextKey": "heroes_tenant_key" } },
-    "discover": { "resource": "read", "contract": "rate-contract-1.0", "securityMode": "invoker", "tenantEnforcement": { "method": "database-rls", "tenantField": "tenant.key", "contextKey": "heroes_tenant_key" } },
-    "list": { "resource": "read", "contract": "rate-contract-1.0", "securityMode": "invoker", "tenantEnforcement": { "method": "database-rls", "tenantField": "tenant.key", "contextKey": "heroes_tenant_key" } }
+    "ingest": { "resource": "write", "contract": "rate-contract-1.0", "securityMode": "invoker", "tenantEnforcement": { "method": "database-rls", "tenantField": "tenant.key", "contextKey": "heroes_tenant_key", "protectedResources": ["store"] } },
+    "discover": { "resource": "read", "contract": "rate-contract-1.0", "securityMode": "invoker", "tenantEnforcement": { "method": "database-rls", "tenantField": "tenant.key", "contextKey": "heroes_tenant_key", "protectedResources": ["store"] } },
+    "list": { "resource": "read", "contract": "rate-contract-1.0", "securityMode": "invoker", "tenantEnforcement": { "method": "database-rls", "tenantField": "tenant.key", "contextKey": "heroes_tenant_key", "protectedResources": ["store"] } }
   },
   "fields": [
     { "semantic": "tenant.key", "resource": "store", "path": "/owner/workspace" },

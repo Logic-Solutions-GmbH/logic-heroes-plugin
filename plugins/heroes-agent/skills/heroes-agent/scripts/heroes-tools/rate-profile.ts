@@ -48,6 +48,7 @@ interface RateOperationDeclaration {
     method: 'database-rls';
     tenantField: 'tenant.key';
     contextKey: 'heroes_tenant_key';
+    protectedResources: string[];
   };
 }
 
@@ -219,6 +220,19 @@ function parseOperations(
     if (tenant.tenantField !== 'tenant.key' || tenant.contextKey !== 'heroes_tenant_key') {
       throw new Error(`Operation ${operation} must bind tenant.key to heroes_tenant_key`);
     }
+    const protectedResources = strings(
+      tenant.protectedResources,
+      `operations.${operation}.tenantEnforcement.protectedResources`,
+    );
+    if (protectedResources.length === 0) {
+      throw new Error(`Operation ${operation} must name at least one RLS-protected table`);
+    }
+    unique(protectedResources, `Operation ${operation} RLS table`);
+    for (const protectedResource of protectedResources) {
+      if (!resources.some(({ id, kind }) => id === protectedResource && kind === 'table')) {
+        throw new Error(`Operation ${operation} uses unknown RLS table: ${protectedResource}`);
+      }
+    }
     return [operation, {
       resource,
       contract: 'rate-contract-1.0' as const,
@@ -227,6 +241,7 @@ function parseOperations(
         method: 'database-rls' as const,
         tenantField: 'tenant.key' as const,
         contextKey: 'heroes_tenant_key' as const,
+        protectedResources,
       },
     }];
   })) as RateProfile['operations'];
@@ -277,6 +292,7 @@ function validateControls(
   value: unknown,
   resources: RateProfile['resources'],
   fields: RateProfile['fields'],
+  operations: RateProfile['operations'],
 ): RateProfile['controls'] {
   const controls = record(value, 'controls');
   if (!controls.tenantIsolation) throw new Error('tenant isolation must use database RLS with tenant.key');
@@ -292,6 +308,13 @@ function validateControls(
   }
   for (const resource of protectedResources) {
     if (!mappedTables.includes(resource)) throw new Error(`RLS declaration uses unmapped table: ${resource}`);
+  }
+  for (const [operation, declaration] of Object.entries(operations)) {
+    for (const resource of declaration.tenantEnforcement.protectedResources) {
+      if (!protectedResources.includes(resource)) {
+        throw new Error(`Operation ${operation} uses table without tenant RLS: ${resource}`);
+      }
+    }
   }
 
   const grants = record(controls.grants, 'controls.grants');
@@ -389,7 +412,7 @@ export function parseRateProfile(value: unknown, expectedIdentity: RateProfileId
   const resources = parseResources(source.resources);
   const operations = parseOperations(source.operations, resources);
   const fields = parseFields(source.fields, resources);
-  const controls = validateControls(source.controls, resources, fields);
+  const controls = validateControls(source.controls, resources, fields, operations);
   return {
     profileVersion: RATE_PROFILE_VERSION,
     status: source.status,

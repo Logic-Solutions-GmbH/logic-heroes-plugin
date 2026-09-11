@@ -29,7 +29,7 @@ Each profile contains:
 
 A field path is a column name or JSON Pointer. Raw SQL and SQL fragments are invalid. Resource names must include their schema.
 
-Every operation must use invoker security and database RLS. Its tenant rule binds `tenant.key` to the stable `heroes_tenant_key` database context. This prevents a view or function from declaring a safe contract while it bypasses table RLS. S4b must verify that each real database object matches this declaration.
+Every operation must use invoker security and database RLS. Its tenant rule binds `tenant.key` to the stable `heroes_tenant_key` database context. It also names each table dependency. Every dependency must appear in the profile's RLS-protected table set. This prevents a view or function from declaring a safe contract while it bypasses table RLS. S4b must verify that each real database object matches this declaration.
 
 The required semantic fields cover:
 
