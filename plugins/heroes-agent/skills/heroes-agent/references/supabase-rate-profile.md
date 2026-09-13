@@ -15,7 +15,34 @@ Use this sequence before a Supabase rate adapter can read or write rates:
 5. Change `status` to `confirmed`. Parse and persist it with `persistConfirmedRateProfile`.
 6. In each later process, use `loadConfirmedRateProfile`. Resolve fields and operations through `resolveRateField` and `resolveRateOperation`.
 
-An adapter must not use a proposal. Discovery must not change the database. A later slice owns table, function, grant, and RLS changes.
+An adapter must not use a proposal. Discovery must not change the database.
+
+## ACME S4b installation
+
+The versioned ACME model is bound to tenant `acme` and project `enjephpxfrbccskdljun`. Use the exact state sequence:
+
+```text
+node <plugin-root>/scripts/run-tool.mjs supabase-rate-model.ts discover
+node <plugin-root>/scripts/run-tool.mjs supabase-rate-model.ts propose
+node <plugin-root>/scripts/run-tool.mjs supabase-rate-model.ts confirm --proposal-hash <confirmed-hash>
+node <plugin-root>/scripts/run-tool.mjs supabase-rate-model.ts install --proposal-hash <confirmed-hash>
+node <plugin-root>/scripts/run-tool.mjs supabase-rate-model.ts reload
+```
+
+The `confirm` command checks the current proposal hash. It does not save an operational profile. The human confirmation remains the required stop gate.
+
+`install` uses migrations `20260912000100_acme_rate_model.sql`, `20260912000200_acme_rate_context_key.sql`, and `20260912000300_acme_rate_query_context.sql` with Supabase CLI `2.117.0`. It uses the explicit project reference. It never calls `supabase link` or `migration repair`.
+
+The installer saves the confirmed profile only after these checks pass:
+
+- the binding, objects, columns, constraints, grants, RLS policies, and dependencies match the proposal;
+- both exposed views and both functions use invoker security;
+- the ACME role can read and write ACME rows;
+- a second role cannot disclose or change ACME rows;
+- the second role cannot insert an ACME row, even with a forged ACME context;
+- the complete policy probe rolls back.
+
+A failed check leaves `self/supabase/migration-attempt.json`. Inspect live state before a human authorizes marker removal. A second `install` must apply no migration and must repeat the checks.
 
 ## Version 1.0 contract
 
@@ -29,7 +56,7 @@ Each profile contains:
 
 A field path is a column name or JSON Pointer. Raw SQL and SQL fragments are invalid. Resource names must include their schema.
 
-Every operation must use invoker security and database RLS. Its tenant rule binds `tenant.key` to the stable `heroes_tenant_key` database context. It also names each table dependency. Every dependency must appear in the profile's RLS-protected table set. This prevents a view or function from declaring a safe contract while it bypasses table RLS. S4b must verify that each real database object matches this declaration.
+Every operation must use invoker security and database RLS. Its tenant rule binds `tenant.key` to the valid `heroes.tenant_key` database context. It also names each table dependency. Every dependency must appear in the profile's RLS-protected table set. This prevents a view or function from declaring a safe contract while it bypasses table RLS. S4b must verify that each real database object matches this declaration.
 
 The required semantic fields cover:
 
@@ -41,7 +68,7 @@ The required semantic fields cover:
 - approval status, actor, time, and content hash;
 - Heroes catalog response hash and fetch time.
 
-The idempotency declaration must combine tenant key, card ID, rule ID, and source hash on one named table. The physical constraint name can differ by schema. The approval rule requires a valid content hash. The current rule compares the saved catalog hash with the active Heroes catalog. The validity rule requires the saved timeframe to contain the query window.
+The idempotency declaration must combine tenant key, card ID, rule ID, and source hash on one named table. The ACME physical constraint also includes the charge key. This preserves distinct charges for one source rule. A repeat write returns the existing row without a row change. The approval rule requires a valid content hash. The current rule compares the saved catalog hash with the active Heroes catalog. The validity rule requires the saved timeframe to contain the query window.
 
 ## Closed failures
 

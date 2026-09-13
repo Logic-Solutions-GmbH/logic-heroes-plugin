@@ -47,7 +47,7 @@ interface RateOperationDeclaration {
   tenantEnforcement: {
     method: 'database-rls';
     tenantField: 'tenant.key';
-    contextKey: 'heroes_tenant_key';
+    contextKey: 'heroes.tenant_key';
     protectedResources: string[];
   };
 }
@@ -217,8 +217,8 @@ function parseOperations(
       'database-rls',
       `Operation ${operation} must declare database RLS tenant enforcement`,
     );
-    if (tenant.tenantField !== 'tenant.key' || tenant.contextKey !== 'heroes_tenant_key') {
-      throw new Error(`Operation ${operation} must bind tenant.key to heroes_tenant_key`);
+    if (tenant.tenantField !== 'tenant.key' || tenant.contextKey !== 'heroes.tenant_key') {
+      throw new Error(`Operation ${operation} must bind tenant.key to heroes.tenant_key`);
     }
     const protectedResources = strings(
       tenant.protectedResources,
@@ -240,7 +240,7 @@ function parseOperations(
       tenantEnforcement: {
         method: 'database-rls' as const,
         tenantField: 'tenant.key' as const,
-        contextKey: 'heroes_tenant_key' as const,
+        contextKey: 'heroes.tenant_key' as const,
         protectedResources,
       },
     }];
