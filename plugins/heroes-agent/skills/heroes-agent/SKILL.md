@@ -52,6 +52,8 @@ Show the non-secret tenant, project name, region, and binding path. Apply only a
 
 Before a Supabase rate adapter can use a user schema, read `references/supabase-rate-profile.md`. Only a human-confirmed profile bound to the current `self/supabase/binding.json` can be used. Discovery and proposal do not authorize schema changes.
 
+For the exact ACME S4b binding, use `supabase-rate-model.ts`. Run `discover`, then `propose`, and stop for human confirmation. Pass the confirmed proposal hash to `confirm` and `install`. Run `reload` and a second `install` after success. Never remove a remaining migration-attempt marker without operator approval.
+
 ## Triage and choose the move
 
 - A file under `counterparties/<tenant-key>/intake/` came through that counterparty's channel. Names inside the document are content and never reroute the channel. Root `intake/` is only for unknown first contact.

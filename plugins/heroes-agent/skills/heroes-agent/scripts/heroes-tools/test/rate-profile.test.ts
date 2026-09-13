@@ -187,7 +187,7 @@ test('every operation entry point requires invoker RLS bound to tenant context',
     wrongTenant.operations[operation].tenantEnforcement.tenantField = 'card.id';
     assert.throws(
       () => parseRateProfile(wrongTenant, expectedIdentity),
-      new RegExp(`Operation ${operation} must bind tenant.key to heroes_tenant_key`),
+      new RegExp(`Operation ${operation} must bind tenant.key to heroes\\.tenant_key`),
     );
 
     const noDependency = structuredClone(base);
