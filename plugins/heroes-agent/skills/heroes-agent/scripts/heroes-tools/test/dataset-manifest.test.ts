@@ -46,6 +46,11 @@ function validManifest(): any {
   };
 }
 
+/** Adds a required `json` field that no key, index, filter or order uses. */
+function withPayload(manifest: any): void {
+  manifest.fields.push({ name: 'payload', type: 'json', required: true });
+}
+
 function refuse(change: (manifest: any) => void): string {
   const manifest = validManifest();
   change(manifest);
@@ -107,13 +112,146 @@ test('validates the dataset manifest before any write', () => {
       change: (m) => delete m.approval.contentHash,
       message: /^approval declaration is missing a field for: contentHash$/,
     },
+    // Names.
+    { name: 'an invalid dataset key', change: (m) => m.dataset = 'Acme', message: /^Invalid dataset key: Acme$/ },
+    { name: 'an invalid field name', change: (m) => m.fields[1].name = 'HS-Code', message: /^Invalid field name: HS-Code$/ },
+    {
+      name: 'a field name longer than 63 characters',
+      change: (m) => m.fields.push({ name: 'a'.repeat(64), type: 'text', required: false }),
+      message: new RegExp(`^Invalid field name: ${'a'.repeat(64)}$`),
+    },
+    { name: 'an invalid index name', change: (m) => m.indexes[0].name = 'By HS', message: /^Invalid index name: By HS$/ },
+    // Shapes.
+    { name: 'a field that is not an object', change: (m) => m.fields = [7], message: /^fields\[0\] must be an object$/ },
+    { name: 'fields that are not an array', change: (m) => m.fields = {}, message: /^fields must be an array$/ },
+    { name: 'no fields', change: (m) => m.fields = [], message: /^fields must declare at least one field$/ },
+    { name: 'an empty field name', change: (m) => m.fields[1].name = ' ', message: /^fields\[1\]\.name must be a non-empty string$/ },
+    { name: 'a required flag that is not a boolean', change: (m) => m.fields[1].required = 'yes', message: /^fields\[1\]\.required must be true or false$/ },
+    { name: 'a key that is not a string array', change: (m) => m.identity = 'tariff_id', message: /^identity key must be an array of non-empty strings$/ },
+    { name: 'indexes that are not an array', change: (m) => m.indexes = {}, message: /^indexes must be an array$/ },
+    { name: 'filters that are not an array', change: (m) => m.filters = {}, message: /^filters must be an array$/ },
+    // Keys.
+    { name: 'an empty identity key', change: (m) => m.identity = [], message: /^identity key must name at least one field$/ },
+    { name: 'an empty deduplication key', change: (m) => m.deduplication = [], message: /^deduplication key must name at least one field$/ },
+    {
+      name: 'a duplicate field in a key',
+      change: (m) => m.identity = ['tariff_id', 'tariff_id'],
+      message: /^Duplicate field in the identity key: tariff_id$/,
+    },
+    {
+      name: 'an optional identity field',
+      change: (m) => m.fields[0].required = false,
+      message: /^identity field must be required: tariff_id$/,
+    },
+    // Indexes.
+    { name: 'an index without fields', change: (m) => m.indexes[0].fields = [], message: /^Index by_hs_code must name at least one field$/ },
+    {
+      name: 'a duplicate field in an index',
+      change: (m) => m.indexes[0].fields = ['hs_code', 'hs_code'],
+      message: /^Duplicate field in index by_hs_code: hs_code$/,
+    },
+    {
+      name: 'a duplicate index name',
+      change: (m) => m.indexes.push({ name: 'by_hs_code', fields: ['valid_from'], unique: true }),
+      message: /^Duplicate index: by_hs_code$/,
+    },
+    // Filters.
+    { name: 'a filter without operators', change: (m) => m.filters[0].operators = [], message: /^Filter on hs_code must allow at least one operator$/ },
+    {
+      name: 'a duplicate operator',
+      change: (m) => m.filters[0].operators = ['equals', 'equals'],
+      message: /^Duplicate operator on the filter over hs_code: equals$/,
+    },
+    { name: 'an unknown operator', change: (m) => m.filters[0].operators = ['like'], message: /^Unsupported filter operator on hs_code: like$/ },
+    {
+      name: 'a duplicate filter field',
+      change: (m) => m.filters.push({ field: 'hs_code', operators: ['equals'] }),
+      message: /^Duplicate filter field: hs_code$/,
+    },
+    {
+      name: 'a range filter on a boolean field',
+      change: (m) => {
+        m.fields.push({ name: 'is_active', type: 'boolean', required: true });
+        m.filters.push({ field: 'is_active', operators: ['equals', 'range'] });
+      },
+      message: /^Filter on is_active cannot offer range on a boolean field$/,
+    },
+    // Roles.
+    {
+      name: 'an unknown provenance role',
+      change: (m) => m.provenance.sourceUrl = 'source_ref',
+      message: /^provenance declaration has an unsupported role: sourceUrl$/,
+    },
+    {
+      name: 'one field in two provenance roles',
+      change: (m) => m.provenance.sourceRef = 'source_file',
+      message: /^Duplicate provenance field: source_file$/,
+    },
+    {
+      name: 'a provenance role on an unknown field',
+      change: (m) => m.provenance.sourceRef = 'source_url',
+      message: /^provenance field for sourceRef is unknown: source_url$/,
+    },
+    {
+      name: 'an optional provenance field',
+      change: (m) => m.fields[6].required = false,
+      message: /^provenance field for sourceHash must be required: source_hash$/,
+    },
+    // Selection.
+    { name: 'an order that is not an array', change: (m) => m.selection.orderBy = {}, message: /^selection policy orderBy must be an array$/ },
+    { name: 'an empty order', change: (m) => m.selection.orderBy = [], message: /^selection policy must order by at least one field$/ },
+    {
+      name: 'an order by an unknown field',
+      change: (m) => m.selection.orderBy[0].field = 'valid_until',
+      message: /^selection policy orders by unknown field: valid_until$/,
+    },
+    {
+      name: 'a duplicate field in the order',
+      change: (m) => m.selection.orderBy.push({ field: 'valid_from', direction: 'asc' }),
+      message: /^Duplicate field in the selection order: valid_from$/,
+    },
+    // A json value has no equality and no order.
+    ...(['identity', 'deduplication'] as const).map((key) => ({
+      name: `a json field in the ${key} key`,
+      change: (m: any) => { withPayload(m); m[key] = ['payload']; },
+      message: new RegExp(`^${key} key cannot use json field: payload$`),
+    })),
+    {
+      name: 'a json field in an index',
+      change: (m) => { withPayload(m); m.indexes[0].fields = ['payload']; },
+      message: /^Index by_hs_code cannot use json field: payload$/,
+    },
+    {
+      name: 'a json field in a filter',
+      change: (m) => { withPayload(m); m.filters[0].field = 'payload'; },
+      message: /^Filter cannot use json field: payload$/,
+    },
+    {
+      name: 'a json field in the order',
+      change: (m) => { withPayload(m); m.selection.orderBy[0].field = 'payload'; },
+      message: /^selection policy cannot order by json field: payload$/,
+    },
+    // A misspelled key must not drop its declaration without a word.
+    { name: 'an unknown manifest key', change: (m) => m.selecton = m.selection, message: /^dataset manifest has an unknown key: selecton$/ },
+    { name: 'an unknown field key', change: (m) => m.fields[0].nullable = false, message: /^fields\[0\] has an unknown key: nullable$/ },
+    { name: 'an unknown index key', change: (m) => m.indexes[0].where = 'x', message: /^indexes\[0\] has an unknown key: where$/ },
+    { name: 'an unknown filter key', change: (m) => m.filters[0].op = 'equals', message: /^filters\[0\] has an unknown key: op$/ },
+    { name: 'an unknown selection key', change: (m) => m.selection.offset = 1, message: /^selection policy has an unknown key: offset$/ },
+    {
+      name: 'an unknown order key',
+      change: (m) => m.selection.orderBy[0].nulls = 'first',
+      message: /^selection\.orderBy\[0\] has an unknown key: nulls$/,
+    },
   ];
 
+  // Every case runs, so one broken guard cannot hide another.
+  const problems: string[] = [];
   for (const { name, change, message } of cases) {
     const refusal = refuse(change);
-    assert.notEqual(refusal, '', `${name} was accepted`);
-    assert.match(refusal, message, `${name} was refused without naming what failed`);
+    if (!refusal) problems.push(`${name} was accepted`);
+    else if (!message.test(refusal)) problems.push(`${name} was refused with: ${refusal}`);
   }
+  assert.deepEqual(problems, []);
 });
 
 test('refuses a selection policy that cannot answer the same query twice', () => {
@@ -135,6 +273,18 @@ test('refuses a selection policy that cannot answer the same query twice', () =>
   const manifest = validManifest();
   delete manifest.selection;
   assert.equal(parseDatasetManifest(manifest).selection, undefined);
+});
+
+test('accepts a json field, a boolean filter and a 63-character name where they are safe', () => {
+  const source = validManifest();
+  withPayload(source);
+  source.fields.push({ name: 'is_active', type: 'boolean', required: true });
+  source.fields.push({ name: 'a'.repeat(63), type: 'text', required: false });
+  source.filters.push({ field: 'is_active', operators: ['equals'] });
+
+  const manifest = parseDatasetManifest(source);
+  assert.equal(manifest.fields.length, 14);
+  assert.deepEqual(manifest.filters[2], { field: 'is_active', operators: ['equals'] });
 });
 
 test('refuses an unsupported dataset manifest version', () => {
