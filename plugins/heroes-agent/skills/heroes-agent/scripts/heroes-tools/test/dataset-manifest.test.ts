@@ -148,6 +148,11 @@ test('validates the dataset manifest before any write', () => {
       change: (m) => m.fields[1].required = false,
       message: /^deduplication field must be required: hs_code$/,
     },
+    {
+      name: 'an optional field in a unique index',
+      change: (m) => m.indexes.push({ name: 'by_approver', fields: ['approved_by'], unique: true }),
+      message: /^unique index by_approver field must be required: approved_by$/,
+    },
     // Indexes.
     { name: 'an index without fields', change: (m) => m.indexes[0].fields = [], message: /^Index by_hs_code must name at least one field$/ },
     {
@@ -286,10 +291,12 @@ test('accepts a json field, a boolean filter and a 63-character name where they 
   source.fields.push({ name: 'is_active', type: 'boolean', required: true });
   source.fields.push({ name: 'a'.repeat(63), type: 'text', required: false });
   source.filters.push({ field: 'is_active', operators: ['equals'] });
+  source.indexes.push({ name: 'by_approver', fields: ['approved_by'], unique: false });
 
   const manifest = parseDatasetManifest(source);
   assert.equal(manifest.fields.length, 14);
   assert.deepEqual(manifest.filters[2], { field: 'is_active', operators: ['equals'] });
+  assert.deepEqual(manifest.indexes[1], { name: 'by_approver', fields: ['approved_by'], unique: false });
 });
 
 test('refuses an unsupported dataset manifest version', () => {
