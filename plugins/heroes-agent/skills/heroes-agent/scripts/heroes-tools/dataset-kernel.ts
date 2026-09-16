@@ -79,10 +79,6 @@ function validateValue(field: DatasetField, value: unknown, label: string): void
 function validateRows(manifest: DatasetManifest, rows: DatasetRow[]): DatasetRow[] {
   if (!Array.isArray(rows)) throw new Error('rows must be an array');
   const fields = new Map(manifest.fields.map((field) => [field.name, field]));
-  const nonEmpty = new Set([
-    ...manifest.deduplication,
-    ...manifest.indexes.filter(({ unique }) => unique).flatMap(({ fields: names }) => names),
-  ]);
   return rows.map((source, offset) => {
     const rowNumber = offset + 1;
     if (source === null || typeof source !== 'object' || Array.isArray(source)) {
@@ -93,9 +89,6 @@ function validateRows(manifest: DatasetManifest, rows: DatasetRow[]): DatasetRow
     }
     for (const field of manifest.fields) {
       validateValue(field, source[field.name], `row ${rowNumber} field ${field.name}`);
-      if (nonEmpty.has(field.name) && empty(source[field.name])) {
-        throw new Error(`row ${rowNumber} field ${field.name} must not be empty`);
-      }
     }
     return structuredClone(source);
   });
@@ -110,7 +103,10 @@ function describeKey(row: DatasetRow, fields: string[]): string {
 }
 
 function firstChangedField(manifest: DatasetManifest, left: DatasetRow, right: DatasetRow): string | undefined {
-  return manifest.fields.find(({ name }) => !isDeepStrictEqual(left[name], right[name]))?.name;
+  return manifest.fields.find(({ name }) => {
+    if (empty(left[name]) && empty(right[name])) return false;
+    return !isDeepStrictEqual(left[name], right[name]);
+  })?.name;
 }
 
 function collision(
@@ -119,21 +115,28 @@ function collision(
   return rows.find((row) => !sameKey(row, candidate, excludedIdentity) && sameKey(row, candidate, fields));
 }
 
-function compare(left: unknown, right: unknown): number {
+function compare(field: DatasetField, left: unknown, right: unknown): number {
+  if (field.type === 'timestamp') return Date.parse(String(left)) - Date.parse(String(right));
   if (typeof left === 'number' && typeof right === 'number') return left - right;
   const leftText = String(left);
   const rightText = String(right);
   return leftText < rightText ? -1 : leftText > rightText ? 1 : 0;
 }
 
-function matches(row: DatasetRow, query: DatasetQuery): boolean {
+function matches(row: DatasetRow, query: DatasetQuery, field: DatasetField): boolean {
   const actual = row[query.field];
+  if (empty(actual)) return false;
   if (query.operator === 'equals') return isDeepStrictEqual(actual, query.value);
   if (query.operator === 'one-of') return query.value.some((value) => isDeepStrictEqual(actual, value));
   const lower = query.value.from;
   const upper = query.value.to;
-  return (lower === undefined || compare(actual, lower) >= 0)
-    && (upper === undefined || compare(actual, upper) <= 0);
+  return (lower === undefined || compare(field, actual, lower) >= 0)
+    && (upper === undefined || compare(field, actual, upper) <= 0);
+}
+
+function validateQueryValue(field: DatasetField, value: unknown, label: string): void {
+  if (empty(value)) throw new Error(`${label} must not be empty`);
+  validateValue(field, value, label);
 }
 
 function validateQuery(manifest: DatasetManifest, query: DatasetQuery): void {
@@ -147,7 +150,9 @@ function validateQuery(manifest: DatasetManifest, query: DatasetQuery): void {
     if (!Array.isArray(query.value) || query.value.length === 0) {
       throw new Error(`filter ${query.field} one-of value must be a non-empty array`);
     }
-    query.value.forEach((value, index) => validateValue(field, value, `filter ${query.field} value ${index + 1}`));
+    query.value.forEach((value, index) => {
+      validateQueryValue(field, value, `filter ${query.field} value ${index + 1}`);
+    });
     return;
   }
   if (query.operator === 'range') {
@@ -158,11 +163,11 @@ function validateQuery(manifest: DatasetManifest, query: DatasetQuery): void {
     if (keys.length === 0 || keys.some((key) => key !== 'from' && key !== 'to')) {
       throw new Error(`filter ${query.field} range must declare from or to`);
     }
-    if (query.value.from !== undefined) validateValue(field, query.value.from, `filter ${query.field} from`);
-    if (query.value.to !== undefined) validateValue(field, query.value.to, `filter ${query.field} to`);
+    if ('from' in query.value) validateQueryValue(field, query.value.from, `filter ${query.field} from`);
+    if ('to' in query.value) validateQueryValue(field, query.value.to, `filter ${query.field} to`);
     return;
   }
-  validateValue(field, query.value, `filter ${query.field} value`);
+  validateQueryValue(field, query.value, `filter ${query.field} value`);
 }
 
 function canonicalJson(value: unknown): string {
@@ -180,7 +185,8 @@ function exportRows(manifest: DatasetManifest, rows: DatasetRow[]): DatasetRow[]
   return [...rows]
     .sort((left, right) => {
       for (const field of manifest.identity) {
-        const order = compare(left[field], right[field]);
+        const declaration = manifest.fields.find(({ name }) => name === field)!;
+        const order = compare(declaration, left[field], right[field]);
         if (order !== 0) return order;
       }
       return 0;
@@ -228,12 +234,13 @@ export function createDatasetKernel(store: DatasetStore): DatasetKernel {
 
         const duplicate = collision(rows, candidate, dataset.manifest.deduplication, dataset.manifest.identity);
         if (duplicate) {
-          const field = dataset.manifest.deduplication[0];
-          throw new Error(`row ${rowNumber} field ${field} conflicts with an existing deduplication key`);
+          const key = describeKey(candidate, dataset.manifest.deduplication);
+          throw new Error(`row ${rowNumber} deduplication key ${key} conflicts with an existing row`);
         }
         for (const unique of dataset.manifest.indexes.filter(({ unique }) => unique)) {
           if (collision(rows, candidate, unique.fields, dataset.manifest.identity)) {
-            throw new Error(`row ${rowNumber} field ${unique.fields[0]} conflicts with unique index ${unique.name}`);
+            const key = describeKey(candidate, unique.fields);
+            throw new Error(`row ${rowNumber} unique index ${unique.name} key ${key} conflicts with an existing row`);
           }
         }
         rows.push(candidate);
@@ -247,7 +254,8 @@ export function createDatasetKernel(store: DatasetStore): DatasetKernel {
     async query(datasetId, query) {
       const dataset = await requireDataset(store, datasetId);
       validateQuery(dataset.manifest, query);
-      return structuredClone(dataset.rows.filter((row) => matches(row, query)));
+      const field = dataset.manifest.fields.find(({ name }) => name === query.field)!;
+      return structuredClone(dataset.rows.filter((row) => matches(row, query, field)));
     },
 
     async export(datasetId) {
