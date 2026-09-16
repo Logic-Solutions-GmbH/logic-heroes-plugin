@@ -32,7 +32,7 @@ const manifest: DatasetManifest = {
     { field: 'region', operators: ['equals', 'one-of'] },
     { field: 'price', operators: ['range'] },
     { field: 'note', operators: ['equals', 'one-of', 'range'] },
-    { field: 'approved_at', operators: ['range'] },
+    { field: 'approved_at', operators: ['equals', 'one-of', 'range'] },
   ],
   provenance: { sourceFile: 'source_file', sourceRef: 'source_ref', sourceHash: 'source_hash' },
   approval: {
@@ -73,6 +73,9 @@ test('local adapter satisfies the dataset kernel contract', async () => {
     const rowWithoutNote = { ...rows[0] };
     delete rowWithoutNote.note;
     assert.deepEqual(await kernel.ingest(manifest.dataset, [rowWithoutNote]), { inserted: 0, total: 2 });
+    assert.deepEqual(await kernel.ingest(manifest.dataset, [{
+      ...rows[0], approved_at: '2026-09-16T10:00:00Z',
+    }]), { inserted: 0, total: 2 });
 
     await assert.rejects(
       kernel.ingest(manifest.dataset, [
@@ -146,6 +149,12 @@ test('local adapter satisfies the dataset kernel contract', async () => {
     assert.deepEqual(await kernel.query(manifest.dataset, {
       field: 'approved_at', operator: 'range', value: { from: '2026-09-16T11:15:00Z' },
     }), [rows[1]]);
+    assert.deepEqual(await kernel.query(manifest.dataset, {
+      field: 'approved_at', operator: 'equals', value: '2026-09-16T10:00:00Z',
+    }), [rows[0]]);
+    assert.deepEqual(await kernel.query(manifest.dataset, {
+      field: 'approved_at', operator: 'one-of', value: ['2026-09-16T10:00:00Z'],
+    }), [rows[0]]);
 
     const firstExport = readFileSync(await kernel.export(manifest.dataset));
     const secondExport = readFileSync(await kernel.export(manifest.dataset));

@@ -95,6 +95,7 @@ function validateRows(manifest: DatasetManifest, rows: DatasetRow[]): DatasetRow
 }
 
 function sameKey(left: DatasetRow, right: DatasetRow, fields: string[]): boolean {
+  // Keys stay representation-sensitive; value equality applies to row content and filters.
   return fields.every((field) => isDeepStrictEqual(left[field], right[field]));
 }
 
@@ -102,10 +103,15 @@ function describeKey(row: DatasetRow, fields: string[]): string {
   return fields.map((field) => `${field}=${String(row[field])}`).join(',');
 }
 
+function sameValue(field: DatasetField, left: unknown, right: unknown): boolean {
+  if (field.type === 'timestamp') return Date.parse(String(left)) === Date.parse(String(right));
+  return isDeepStrictEqual(left, right);
+}
+
 function firstChangedField(manifest: DatasetManifest, left: DatasetRow, right: DatasetRow): string | undefined {
-  return manifest.fields.find(({ name }) => {
-    if (empty(left[name]) && empty(right[name])) return false;
-    return !isDeepStrictEqual(left[name], right[name]);
+  return manifest.fields.find((field) => {
+    if (empty(left[field.name]) && empty(right[field.name])) return false;
+    return !sameValue(field, left[field.name], right[field.name]);
   })?.name;
 }
 
@@ -126,8 +132,8 @@ function compare(field: DatasetField, left: unknown, right: unknown): number {
 function matches(row: DatasetRow, query: DatasetQuery, field: DatasetField): boolean {
   const actual = row[query.field];
   if (empty(actual)) return false;
-  if (query.operator === 'equals') return isDeepStrictEqual(actual, query.value);
-  if (query.operator === 'one-of') return query.value.some((value) => isDeepStrictEqual(actual, value));
+  if (query.operator === 'equals') return sameValue(field, actual, query.value);
+  if (query.operator === 'one-of') return query.value.some((value) => sameValue(field, actual, value));
   const lower = query.value.from;
   const upper = query.value.to;
   return (lower === undefined || compare(field, actual, lower) >= 0)
