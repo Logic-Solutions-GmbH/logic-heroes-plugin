@@ -148,6 +148,11 @@ test('validates the dataset manifest before any write', () => {
       change: (m) => m.fields[1].required = false,
       message: /^deduplication field must be required: hs_code$/,
     },
+    {
+      name: 'an optional field in a unique index',
+      change: (m) => m.indexes.push({ name: 'by_approver', fields: ['approved_by'], unique: true }),
+      message: /^unique index by_approver field must be required: approved_by$/,
+    },
     // Indexes.
     { name: 'an index without fields', change: (m) => m.indexes[0].fields = [], message: /^Index by_hs_code must name at least one field$/ },
     {
