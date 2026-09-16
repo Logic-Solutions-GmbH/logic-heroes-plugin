@@ -143,6 +143,11 @@ test('validates the dataset manifest before any write', () => {
       change: (m) => m.fields[0].required = false,
       message: /^identity field must be required: tariff_id$/,
     },
+    {
+      name: 'an optional deduplication field',
+      change: (m) => m.fields[1].required = false,
+      message: /^deduplication field must be required: hs_code$/,
+    },
     // Indexes.
     { name: 'an index without fields', change: (m) => m.indexes[0].fields = [], message: /^Index by_hs_code must name at least one field$/ },
     {

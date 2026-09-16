@@ -117,6 +117,7 @@ export function parseDatasetManifest(value: unknown): DatasetManifest {
   const identity = parseKey(source.identity, 'identity', fieldTypes);
   const deduplication = parseKey(source.deduplication, 'deduplication', fieldTypes);
   // A null identity value cannot identify a row, and a row without provenance cannot say where it came from.
+  // A null deduplication value never matches another row, so a re-import would add that row again.
   const requiredFields = new Set(fields.filter(({ required }) => required).map(({ name }) => name));
   for (const name of identity) {
     if (!requiredFields.has(name)) throw new Error(`identity field must be required: ${name}`);
@@ -128,6 +129,9 @@ export function parseDatasetManifest(value: unknown): DatasetManifest {
     if (!requiredFields.has(provenance[role])) {
       throw new Error(`provenance field for ${role} must be required: ${provenance[role]}`);
     }
+  }
+  for (const name of deduplication) {
+    if (!requiredFields.has(name)) throw new Error(`deduplication field must be required: ${name}`);
   }
   const approval = parseRoles(source.approval, 'approval', DATASET_APPROVAL_ROLES, fieldNames);
   const selection = parseSelection(source.selection, fieldTypes, identity);
