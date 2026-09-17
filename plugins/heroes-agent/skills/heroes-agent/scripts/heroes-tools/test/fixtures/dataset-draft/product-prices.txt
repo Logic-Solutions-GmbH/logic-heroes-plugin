@@ -1,0 +1,3 @@
+sku | region | price
+A-1 | eu | 10.5
+B-2 | us | 12

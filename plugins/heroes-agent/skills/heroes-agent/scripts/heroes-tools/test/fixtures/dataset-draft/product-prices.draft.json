@@ -1,0 +1,4 @@
+[
+  { "sku": "A-1", "region": "eu", "price": 10.5 },
+  { "price": 12, "region": "us", "sku": "B-2" }
+]
