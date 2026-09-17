@@ -84,7 +84,7 @@ export interface DatasetManifest {
 }
 
 /**
- * A field, index or dataset segment name. The pattern keeps a name plain, but
+ * A field or index name. The pattern keeps a name plain, but
  * it does not keep out SQL keywords such as `order`: the store adapter must
  * quote every identifier. The 63-character cap is the Postgres identifier
  * limit, past which Postgres cuts a name without an error.
