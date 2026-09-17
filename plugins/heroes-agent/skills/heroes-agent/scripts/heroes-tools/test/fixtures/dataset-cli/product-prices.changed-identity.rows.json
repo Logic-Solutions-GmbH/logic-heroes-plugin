@@ -1,0 +1,16 @@
+[
+  {
+    "sku": "A-1",
+    "external_ref": "vendor-a",
+    "region": "eu",
+    "price": 11,
+    "active": true,
+    "source_file": "message.eml",
+    "source_ref": "line-1",
+    "source_hash": "source-a",
+    "approval_status": "approved",
+    "approved_by": "carlos",
+    "approved_at": "2026-09-16T12:00:00+02:00",
+    "content_hash": "content-a"
+  }
+]
