@@ -2,6 +2,11 @@
 
 Use this procedure when a user sends source data in chat. The user does not write JSON.
 
+Run every command from the peer workspace directory. Every path below is relative to it.
+This procedure reads no Heroes API. It needs no peer identity. A paste-driven intake does not
+require the post-install onboarding in `SKILL.md`. Skip that onboarding when the only work is a
+local dataset.
+
 1. Write the source unchanged to `self/datasets/<dataset>/sources/<utc-timestamp>-<slug>.<ext>` before you read it.
 2. Propose the full manifest. Show the dataset key, each field type and required flag, identity key, deduplication key, filters, provenance fields, and approval fields. Give one short reason for the identity key.
 3. Show the manifest and stop. Wait for approval or corrections.
