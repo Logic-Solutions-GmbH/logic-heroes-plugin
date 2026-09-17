@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "1.0",
+  "dataset": "acme.product_prices",
+  "fields": [
+    { "name": "sku", "type": "text", "required": true },
+    { "name": "external_ref", "type": "text", "required": true },
+    { "name": "region", "type": "text", "required": true },
+    { "name": "price", "type": "decimal", "required": true },
+    { "name": "active", "type": "boolean", "required": true },
+    { "name": "source_file", "type": "text", "required": true },
+    { "name": "source_ref", "type": "text", "required": true },
+    { "name": "source_hash", "type": "text", "required": true },
+    { "name": "approval_status", "type": "text", "required": true },
+    { "name": "approved_by", "type": "text", "required": true },
+    { "name": "approved_at", "type": "timestamp", "required": true },
+    { "name": "content_hash", "type": "text", "required": true }
+  ],
+  "identity": ["sku"],
+  "deduplication": ["source_file", "source_hash"],
+  "indexes": [
+    { "name": "by_external_ref", "fields": ["region", "external_ref"], "unique": true }
+  ],
+  "filters": [
+    { "field": "region", "operators": ["equals", "one-of"] },
+    { "field": "price", "operators": ["range"] }
+  ],
+  "provenance": {
+    "sourceFile": "source_file",
+    "sourceRef": "source_ref",
+    "sourceHash": "source_hash"
+  },
+  "approval": {
+    "status": "approval_status",
+    "approvedBy": "approved_by",
+    "approvedAt": "approved_at",
+    "contentHash": "content_hash"
+  }
+}

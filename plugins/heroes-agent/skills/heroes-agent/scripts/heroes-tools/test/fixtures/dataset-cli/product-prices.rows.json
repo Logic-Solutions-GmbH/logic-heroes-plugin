@@ -1,0 +1,30 @@
+[
+  {
+    "sku": "A-1",
+    "external_ref": "vendor-a",
+    "region": "eu",
+    "price": 10.5,
+    "active": true,
+    "source_file": "message.eml",
+    "source_ref": "line-1",
+    "source_hash": "source-a",
+    "approval_status": "approved",
+    "approved_by": "carlos",
+    "approved_at": "2026-09-16T12:00:00+02:00",
+    "content_hash": "content-a"
+  },
+  {
+    "sku": "B-2",
+    "external_ref": "vendor-b",
+    "region": "us",
+    "price": 12,
+    "active": false,
+    "source_file": "prices.pdf",
+    "source_ref": "page-2",
+    "source_hash": "source-b",
+    "approval_status": "approved",
+    "approved_by": "carlos",
+    "approved_at": "2026-09-16T12:05:00.000Z",
+    "content_hash": "content-b"
+  }
+]

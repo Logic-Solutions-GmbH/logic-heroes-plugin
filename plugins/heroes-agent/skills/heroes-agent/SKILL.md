@@ -97,6 +97,18 @@ Read `references/rfq.md` and `references/rate-book.md` before moving an RFQ.
 
 Read `references/offer.md` for the railway, the spec shape, the exit codes, and the worked example.
 
+## Local datasets
+
+Use one generic tool for every local dataset. Run it from the peer workspace with
+`node <plugin-root>/scripts/run-tool.mjs dataset.ts <command>`. Do not create a tool file per dataset.
+
+- Define a supplied manifest with `define --manifest <file.json>`.
+- Ingest with `ingest --dataset <key> --rows <file.json>`. The agent may draft the typed JSON rows from chat, but it must show them to the human and ingest only rows the human approved. The rows file carries all provenance and approval fields; the tool adds nothing.
+- Query only a declared filter with `query --dataset <key> --field <name> --operator <equals|one-of|range> --value <value>`. A text value that is only digits, or is `true`, `false` or `null`, or starts with `[` or `{`, must be passed as a JSON string, for example `--value '"1001"'`. Use JSON for arrays, objects, numbers, and booleans. Plain text such as `eu` needs no JSON quotes.
+- Export with `export --dataset <key>`. Use the returned CSV path.
+
+Exit `0` means success. Exit `2` means a usage error or an undefined dataset. Exit `4` means the tool refused an invalid manifest, invalid row, changed identity, or undeclared filter. Add `--json` when only the JSON result is needed.
+
 ## Inspect and watch
 
 - `service-status.ts <service-id> [--download]` folds current strategies, events, and attachments into one view.
