@@ -56,6 +56,10 @@ function sha256(value: string | Buffer): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
+function empty(value: unknown): boolean {
+  return value === undefined || value === null || value === '';
+}
+
 function emit(result: Result, jsonOnly: boolean): void {
   if (!jsonOnly) {
     heading(`Dataset draft: ${result.status}`);
@@ -98,6 +102,7 @@ run(async () => {
     const manifest = parseDatasetManifest(stored.manifest);
     const draft = readDraft(draftPath);
     if (!Array.isArray(draft)) throw new Error('draft file must contain a JSON array');
+    if (draft.length === 0) throw new UsageError('draft file has no rows');
 
     const sourceHash = sha256(readBytes(sourcePath, 'source'));
     const roleFields = new Set([
@@ -120,10 +125,15 @@ run(async () => {
       if (unknown) throw new Error(`draft row ${index + 1} carries undeclared field: ${unknown}`);
 
       const data = Object.fromEntries(
-        dataFields.flatMap((name) => row[name] === undefined ? [] : [[name, row[name]]]),
+        dataFields.flatMap((name) => empty(row[name]) ? [] : [[name, row[name]]]),
       );
-      // Canonical JSON is the row's declared fields in manifest order, with every provenance and
-      // approval field removed, serialized with JSON.stringify. A second tool can reproduce this hash.
+      // Canonical JSON, the input of contentHash. A second tool must reproduce it exactly:
+      //  1. take the manifest's fields in manifest order, skip every provenance and approval field;
+      //  2. skip a field whose row value is undefined, null or '' (the kernel's empty rule);
+      //  3. keep the remaining values as parsed from the draft JSON: no trimming, no type coercion;
+      //  4. JSON.stringify the object with no replacer and no indentation. Numbers print as
+      //     JavaScript shortest round-trip, so 10.50 and 1.05e1 both hash as 10.5.
+      // The draft row's own key order never matters.
       const contentHash = sha256(JSON.stringify(data));
       return {
         ...data,

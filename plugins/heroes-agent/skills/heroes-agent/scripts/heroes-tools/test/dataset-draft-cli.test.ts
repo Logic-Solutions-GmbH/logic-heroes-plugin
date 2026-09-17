@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -30,12 +30,19 @@ function hash(value: string | Buffer): string {
 test('agent can stamp approved rows, ingest them once, query, export, and refuse unsafe drafts', () => {
   const workspace = mkdtempSync(join(tmpdir(), 'heroes-dataset-draft-cli-'));
   const manifest = join(fixtures, 'product-prices.manifest.json');
+  const altManifest = join(fixtures, 'product-prices-alt.manifest.json');
   const source = join(fixtures, 'product-prices.txt');
   const goodDraft = join(fixtures, 'product-prices.draft.json');
   const approvalDraft = join(fixtures, 'product-prices.approval-field.draft.json');
   const stampedPath = join(workspace, 'product-prices.stamped.json');
   const dataset = 'acme.product_prices';
+  const altDataset = 'acme.product_prices_alt';
   const approvedAt = '2026-09-17T18:30:00.000Z';
+  const definition = JSON.parse(readFileSync(manifest, 'utf8')) as {
+    provenance: Record<'sourceFile' | 'sourceRef' | 'sourceHash', string>;
+    approval: Record<'status' | 'approvedBy' | 'approvedAt' | 'contentHash', string>;
+  };
+  const altDefinition = JSON.parse(readFileSync(altManifest, 'utf8')) as typeof definition;
 
   try {
     const defined = runTool(workspace, 'dataset.ts', ['define', '--manifest', manifest, '--json']);
@@ -52,18 +59,90 @@ test('agent can stamp approved rows, ingest them once, query, export, and refuse
 
     const rows = JSON.parse(readFileSync(stampedPath, 'utf8')) as Record<string, unknown>[];
     const expectedSourceHash = hash(readFileSync(source));
-    assert.equal(rows[0].origin_path, source);
-    assert.equal(rows[0].origin_ref, 'rows 2-3 of the price table');
-    assert.equal(rows[0].origin_hash, expectedSourceHash);
-    assert.equal(rows[0].review_state, 'approved');
-    assert.equal(rows[0].reviewer, 'carlos');
-    assert.equal(rows[0].reviewed_at, approvedAt);
-    assert.equal(rows[0].data_hash, hash(JSON.stringify({ sku: 'A-1', region: 'eu', price: 10.5 })));
-    assert.equal(rows[1].data_hash, hash(JSON.stringify({ sku: 'B-2', region: 'us', price: 12 })));
-    assert.notEqual(rows[0].data_hash, rows[1].data_hash);
-    // Understanding proof: the stored manifest owns role names, while contentHash covers data only.
-    assert.equal('source_file' in rows[0], false);
-    assert.equal('approved_by' in rows[0], false);
+    assert.equal(rows[0][definition.provenance.sourceFile], source);
+    assert.equal(rows[0][definition.provenance.sourceRef], 'rows 2-3 of the price table');
+    assert.equal(rows[0][definition.provenance.sourceHash], expectedSourceHash);
+    assert.equal(rows[0][definition.approval.status], 'approved');
+    assert.equal(rows[0][definition.approval.approvedBy], 'carlos');
+    assert.equal(rows[0][definition.approval.approvedAt], approvedAt);
+    assert.equal(
+      rows[0][definition.approval.contentHash],
+      hash(JSON.stringify({ sku: 'A-1', region: 'eu', price: 10.5 })),
+    );
+    assert.equal(
+      rows[1][definition.approval.contentHash],
+      hash(JSON.stringify({ sku: 'B-2', region: 'us', price: 12 })),
+    );
+    assert.notEqual(
+      rows[0][definition.approval.contentHash],
+      rows[1][definition.approval.contentHash],
+    );
+
+    const altDefined = runTool(workspace, 'dataset.ts', [
+      'define', '--manifest', altManifest, '--json',
+    ]);
+    assert.equal(altDefined.status, 0, altDefined.stderr || altDefined.stdout);
+    const altStampedPath = join(workspace, 'product-prices-alt.stamped.json');
+    const altStamped = runTool(workspace, 'dataset-draft.ts', [
+      'stamp', '--dataset', altDataset, '--source', source,
+      '--source-ref', 'rows 2-3 of the price table', '--draft', goodDraft,
+      '--approved-by', 'carlos', '--approved-at', approvedAt,
+      '--out', altStampedPath, '--json',
+    ]);
+    assert.equal(altStamped.status, 0, altStamped.stderr || altStamped.stdout);
+    const altRows = JSON.parse(readFileSync(altStampedPath, 'utf8')) as Record<string, unknown>[];
+    assert.equal(altRows[0][altDefinition.provenance.sourceFile], source);
+    assert.equal(altRows[0][altDefinition.provenance.sourceRef], 'rows 2-3 of the price table');
+    assert.equal(altRows[0][altDefinition.provenance.sourceHash], expectedSourceHash);
+    assert.equal(altRows[0][altDefinition.approval.status], 'approved');
+    assert.equal(altRows[0][altDefinition.approval.approvedBy], 'carlos');
+    assert.equal(altRows[0][altDefinition.approval.approvedAt], approvedAt);
+    assert.equal(
+      altRows[0][altDefinition.approval.contentHash],
+      hash(JSON.stringify({ sku: 'A-1', region: 'eu', price: 10.5 })),
+    );
+    for (const firstManifestRole of [
+      ...Object.values(definition.provenance), ...Object.values(definition.approval),
+    ]) {
+      assert.equal(firstManifestRole in altRows[0], false);
+    }
+
+    const absentDraft = join(workspace, 'missing-price.absent.json');
+    const nullDraft = join(workspace, 'missing-price.null.json');
+    writeFileSync(absentDraft, '[{"sku":"C-3","region":"eu"}]\n');
+    writeFileSync(nullDraft, '[{"sku":"C-3","region":"eu","price":null}]\n');
+    const absentStampedPath = join(workspace, 'missing-price.absent.stamped.json');
+    const nullStampedPath = join(workspace, 'missing-price.null.stamped.json');
+    for (const [draftPath, outputPath] of [
+      [absentDraft, absentStampedPath], [nullDraft, nullStampedPath],
+    ]) {
+      const missingStamped = runTool(workspace, 'dataset-draft.ts', [
+        'stamp', '--dataset', dataset, '--source', source,
+        '--source-ref', 'missing price', '--draft', draftPath,
+        '--approved-by', 'carlos', '--approved-at', approvedAt,
+        '--out', outputPath, '--json',
+      ]);
+      assert.equal(missingStamped.status, 0, missingStamped.stderr || missingStamped.stdout);
+    }
+    const absentRow = JSON.parse(readFileSync(absentStampedPath, 'utf8'))[0] as Record<string, unknown>;
+    const nullRow = JSON.parse(readFileSync(nullStampedPath, 'utf8'))[0] as Record<string, unknown>;
+    assert.equal(
+      absentRow[definition.approval.contentHash],
+      nullRow[definition.approval.contentHash],
+    );
+
+    const emptyDraft = join(workspace, 'empty.json');
+    const emptyOutput = join(workspace, 'empty.stamped.json');
+    writeFileSync(emptyDraft, '[]\n');
+    const empty = runTool(workspace, 'dataset-draft.ts', [
+      'stamp', '--dataset', dataset, '--source', source,
+      '--source-ref', 'no rows', '--draft', emptyDraft,
+      '--approved-by', 'carlos', '--approved-at', approvedAt,
+      '--out', emptyOutput, '--json',
+    ]);
+    assert.equal(empty.status, 2, empty.stderr || empty.stdout);
+    assert.match(json(empty).reason, /draft file has no rows/);
+    assert.equal(existsSync(emptyOutput), false);
 
     const firstIngest = runTool(workspace, 'dataset.ts', [
       'ingest', '--dataset', dataset, '--rows', stampedPath, '--json',

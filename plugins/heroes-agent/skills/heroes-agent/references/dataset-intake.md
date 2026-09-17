@@ -6,9 +6,9 @@ Use this procedure when a user sends source data in chat. The user does not writ
 2. Propose the full manifest. Show the dataset key, each field type and required flag, identity key, deduplication key, filters, provenance fields, and approval fields. Give one short reason for the identity key.
 3. Show the manifest and stop. Wait for approval or corrections.
 4. Run `dataset.ts define --manifest <file.json>`. Explain a refusal in plain words, correct the manifest, and try again only after approval.
-5. Propose the typed rows as a table. Mark each value you could not read as missing. State the row count.
+5. Propose the typed rows as a table. Mark each value you could not read as missing. Leave a missing value's key out of the draft JSON. A required missing value is refused at ingest after stamp, so resolve every required missing value before you ask for the second approval. State the row count.
 6. Show the rows and stop. Wait for the second approval. Do not ingest before this approval.
-7. Run `dataset-draft.ts stamp`, then run `dataset.ts ingest`. Report the `inserted` count. Keep the stamped file and reuse it. Never stamp again for a repeated ingest.
+7. Run `dataset-draft.ts stamp`, then run `dataset.ts ingest`. Report the `inserted` count. After an ingest that inserts rows, keep the stamped file and reuse it for a repeated ingest. If ingest refuses, it inserts nothing: correct the draft, show it again, get approval again, and stamp again.
 8. Offer one query on a declared filter. Run `dataset.ts export` and give the CSV path.
 
 Stop if you would need to write a script, edit `index.json`, calculate a hash yourself, ingest before approval, or ask the user for JSON.

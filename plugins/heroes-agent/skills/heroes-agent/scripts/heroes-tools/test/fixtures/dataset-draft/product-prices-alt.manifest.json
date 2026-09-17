@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "1.0",
+  "dataset": "acme.product_prices_alt",
+  "fields": [
+    { "name": "sku", "type": "text", "required": true },
+    { "name": "region", "type": "text", "required": true },
+    { "name": "price", "type": "decimal", "required": true },
+    { "name": "src_path", "type": "text", "required": true },
+    { "name": "src_ref", "type": "text", "required": true },
+    { "name": "src_hash", "type": "text", "required": true },
+    { "name": "state", "type": "text", "required": true },
+    { "name": "approver", "type": "text", "required": true },
+    { "name": "approved_on", "type": "timestamp", "required": true },
+    { "name": "row_hash", "type": "text", "required": true }
+  ],
+  "identity": ["sku"],
+  "deduplication": ["row_hash"],
+  "indexes": [],
+  "filters": [
+    { "field": "region", "operators": ["equals"] }
+  ],
+  "provenance": {
+    "sourceFile": "src_path",
+    "sourceRef": "src_ref",
+    "sourceHash": "src_hash"
+  },
+  "approval": {
+    "status": "state",
+    "approvedBy": "approver",
+    "approvedAt": "approved_on",
+    "contentHash": "row_hash"
+  }
+}
