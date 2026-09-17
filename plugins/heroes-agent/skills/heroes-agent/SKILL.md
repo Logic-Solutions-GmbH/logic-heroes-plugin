@@ -104,7 +104,7 @@ Use one generic tool for every local dataset. Run it from the peer workspace wit
 
 - Define a supplied manifest with `define --manifest <file.json>`.
 - Ingest with `ingest --dataset <key> --rows <file.json>`. The agent may draft the typed JSON rows from chat, but it must show them to the human and ingest only rows the human approved. The rows file carries all provenance and approval fields; the tool adds nothing.
-- Query only a declared filter with `query --dataset <key> --field <name> --operator <equals|one-of|range> --value <value>`. Plain text values need no JSON quotes. Use JSON for arrays, objects, numbers, and booleans.
+- Query only a declared filter with `query --dataset <key> --field <name> --operator <equals|one-of|range> --value <value>`. An unquoted value that parses as JSON becomes that JSON type. JSON-quote text that is digits, `true`, `false`, `null`, or starts with `[` or `{`. For example, use `--value '"1001"'`. Plain text such as `eu` needs no JSON quotes.
 - Export with `export --dataset <key>`. Use the returned CSV path.
 
 Exit `0` means success. Exit `2` means a usage error or an undefined dataset. Exit `4` means the tool refused an invalid manifest, invalid row, changed identity, or undeclared filter. Add `--json` when only the JSON result is needed.

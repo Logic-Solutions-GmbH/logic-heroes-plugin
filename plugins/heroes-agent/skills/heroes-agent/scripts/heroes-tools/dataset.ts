@@ -53,7 +53,7 @@ function readJson(path: string, label: string): unknown {
     return JSON.parse(source) as unknown;
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    throw new Error(`${label} file is not valid JSON: ${reason}`);
+    throw new UsageError(`${label} file is not valid JSON: ${reason}`);
   }
 }
 

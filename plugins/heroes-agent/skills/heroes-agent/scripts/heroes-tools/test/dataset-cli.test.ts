@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -49,12 +49,27 @@ test('agent can define, ingest, query, refuse changes, and export one local data
     assert.equal(repeatedIngest.status, 0, repeatedIngest.stderr || repeatedIngest.stdout);
     assert.equal(json(repeatedIngest).inserted, 0);
 
+    const invalidRows = join(workspace, 'invalid.rows.json');
+    writeFileSync(invalidRows, 'not JSON');
+    const invalidJson = runDataset(workspace, [
+      'ingest', '--dataset', dataset, '--rows', invalidRows, '--json',
+    ]);
+    assert.equal(invalidJson.status, 2, invalidJson.stderr || invalidJson.stdout);
+    assert.match(json(invalidJson).reason, /rows file is not valid JSON/);
+
     const queried = runDataset(workspace, [
       'query', '--dataset', dataset, '--field', 'region',
       '--operator', 'equals', '--value', 'eu', '--json',
     ]);
     assert.equal(queried.status, 0, queried.stderr || queried.stdout);
     assert.deepEqual(json(queried).rows.map((row: { sku: string }) => row.sku), ['A-1']);
+
+    const quotedTextQuery = runDataset(workspace, [
+      'query', '--dataset', dataset, '--field', 'region',
+      '--operator', 'equals', '--value', '"eu"', '--json',
+    ]);
+    assert.equal(quotedTextQuery.status, 0, quotedTextQuery.stderr || quotedTextQuery.stdout);
+    assert.deepEqual(json(quotedTextQuery).rows.map((row: { sku: string }) => row.sku), ['A-1']);
 
     const undeclared = runDataset(workspace, [
       'query', '--dataset', dataset, '--field', 'active',
