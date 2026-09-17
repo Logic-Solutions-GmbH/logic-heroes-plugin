@@ -109,6 +109,12 @@ Use one generic tool for every local dataset. Run it from the peer workspace wit
 
 Exit `0` means success. Exit `2` means a usage error or an undefined dataset. Exit `4` means the tool refused an invalid manifest, invalid row, changed identity, or undeclared filter. Add `--json` when only the JSON result is needed.
 
+### Guided intake
+
+When a user pastes a source, follow `references/dataset-intake.md`. Save the source unchanged before you read it. Show the full manifest and wait for approval. Then show the typed data rows and wait for a second approval. Ingest nothing before the second approval.
+
+After row approval, run `dataset-draft.ts stamp` to add the manifest-declared provenance and approval fields. Then ingest the stamped file. Keep that file for repeated ingest, because a new stamp has a new approval time and can be refused as changed content.
+
 ## Inspect and watch
 
 - `service-status.ts <service-id> [--download]` folds current strategies, events, and attachments into one view.
