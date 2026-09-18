@@ -176,7 +176,7 @@ function validateQuery(manifest: DatasetManifest, query: DatasetQuery): void {
   validateQueryValue(field, query.value, `filter ${query.field} value`);
 }
 
-function canonicalJson(value: unknown): string {
+export function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
   if (value !== null && typeof value === 'object') {
     return `{${Object.entries(value as Record<string, unknown>)
