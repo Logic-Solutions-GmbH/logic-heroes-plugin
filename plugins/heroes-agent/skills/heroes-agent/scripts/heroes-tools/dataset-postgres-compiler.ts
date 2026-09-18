@@ -54,6 +54,16 @@ function derivedIdentifier(...parts: string[]): string {
   return `${prefix}${suffix}`;
 }
 
+function tenantRoleName(tenantKey: string): string {
+  const role = `heroes_agent_${tenantKey}`;
+  if (Buffer.byteLength(role, 'utf8') > 63) {
+    throw new Error(
+      `Tenant key ${tenantKey} makes role ${role} exceed the PostgreSQL identifier limit of 63 bytes`,
+    );
+  }
+  return role;
+}
+
 function tableName(dataset: string): string {
   const name = dataset.replaceAll('.', '__');
   if (Buffer.byteLength(name, 'utf8') > 63) {
@@ -92,9 +102,9 @@ function schemaSql(manifest: DatasetManifest, table: string): string {
   ].join('\n');
 }
 
-function rlsSql(table: string, tenantKey: string): string {
+function rlsSql(table: string, tenantKey: string, roleName: string): string {
   const target = `${identifier('heroes_agent_datasets')}.${identifier(table)}`;
-  const role = identifier(derivedIdentifier('heroes', 'agent', tenantKey));
+  const role = identifier(roleName);
   const tenantCheck = `${identifier('tenant_key')} = ${literal(tenantKey)}`;
   return [
     `ALTER TABLE ${target} ENABLE ROW LEVEL SECURITY;`,
@@ -123,7 +133,8 @@ function filterSql(manifest: DatasetManifest): string[] {
 
     if (filter.operators.includes('equals')) {
       clauses.push(
-        `(jsonb_typeof(${source}) = '${JSON_TYPES[field.type]}' AND ${column} = ${castJson(`${source} #>> '{}'`, field)})`,
+        `(CASE WHEN jsonb_typeof(${source}) = '${JSON_TYPES[field.type]}' `
+        + `THEN ${column} = ${castJson(`${source} #>> '{}'`, field)} ELSE false END)`,
       );
     }
     if (filter.operators.includes('one-of')) {
@@ -141,10 +152,10 @@ function filterSql(manifest: DatasetManifest): string[] {
   });
 }
 
-function functionsSql(manifest: DatasetManifest, table: string, tenantKey: string): string {
+function functionsSql(manifest: DatasetManifest, table: string, tenantKey: string, roleName: string): string {
   const schema = identifier('heroes_agent_datasets');
   const target = `${schema}.${identifier(table)}`;
-  const role = identifier(derivedIdentifier('heroes', 'agent', tenantKey));
+  const role = identifier(roleName);
   const fields = manifest.fields.map(({ name }) => name);
   const insertColumns = ['tenant_key', ...fields];
   const recordColumns = manifest.fields.map((field) => (
@@ -202,6 +213,7 @@ export function compileDatasetPostgres(options: CompileDatasetPostgresOptions): 
   if (!/^\d+$/.test(options.migrationVersion)) {
     throw new Error(`Invalid migration version: ${options.migrationVersion}`);
   }
+  const role = tenantRoleName(options.tenantKey);
   const table = tableName(manifest.dataset);
   const base = posix.join(
     'self', 'supabase', 'project', 'supabase', 'migrations', `${options.migrationVersion}_${table}`,
@@ -210,8 +222,8 @@ export function compileDatasetPostgres(options: CompileDatasetPostgresOptions): 
     manifest,
     files: [
       { path: `${base}_schema.sql`, content: schemaSql(manifest, table) },
-      { path: `${base}_rls.sql`, content: rlsSql(table, options.tenantKey) },
-      { path: `${base}_functions.sql`, content: functionsSql(manifest, table, options.tenantKey) },
+      { path: `${base}_rls.sql`, content: rlsSql(table, options.tenantKey, role) },
+      { path: `${base}_functions.sql`, content: functionsSql(manifest, table, options.tenantKey, role) },
     ],
   };
 }

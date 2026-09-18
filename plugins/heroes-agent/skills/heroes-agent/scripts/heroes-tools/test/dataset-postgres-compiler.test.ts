@@ -39,7 +39,7 @@ function fileBytes(workspace: string, proposal: DatasetProposal): Buffer[] {
 }
 
 test('compiles deterministic dataset DDL and refuses an unbacked destructive change', () => {
-  const workspaces = Array.from({ length: 12 }, () => mkdtempSync(join(tmpdir(), 'heroes-dataset-ddl-')));
+  const workspaces = Array.from({ length: 13 }, () => mkdtempSync(join(tmpdir(), 'heroes-dataset-ddl-')));
 
   try {
     const first = compile(workspaces[0]);
@@ -125,7 +125,7 @@ test('compiles deterministic dataset DDL and refuses an unbacked destructive cha
 
     const boundaryManifest = fixture();
     boundaryManifest.dataset = `${'a'.repeat(31)}.${'b'.repeat(30)}`;
-    const boundary = compile(workspaces[10], boundaryManifest, undefined, undefined, 'c'.repeat(63));
+    const boundary = compile(workspaces[10], boundaryManifest, undefined, undefined, 'acme-corp');
     const boundarySql = fileBytes(workspaces[10], boundary).map((bytes) => bytes.toString('utf8')).join('\n');
     const quotedIdentifiers = [...boundarySql.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
     assert.equal(
@@ -142,9 +142,19 @@ test('compiles deterministic dataset DDL and refuses an unbacked destructive cha
     const mixedFilterSql = fileBytes(workspaces[11], mixedFilter).map((bytes) => bytes.toString('utf8')).join('\n');
     assert.match(
       mixedFilterSql,
-      /jsonb_typeof\("p_filters" -> 'price'\) = 'number' AND "row"\."price" =/,
+      /CASE WHEN jsonb_typeof\("p_filters" -> 'price'\) = 'number' THEN "row"\."price" = .*::numeric ELSE false END/,
     );
     assert.match(mixedFilterSql, /jsonb_typeof\("p_filters" -> 'price'\) = 'object'/);
+
+    const overlongTenantKey = 'c'.repeat(51);
+    assert.throws(
+      () => compile(workspaces[12], fixture(), undefined, undefined, overlongTenantKey),
+      new RegExp(
+        `Tenant key ${overlongTenantKey} makes role heroes_agent_${overlongTenantKey} `
+        + 'exceed the PostgreSQL identifier limit of 63 bytes',
+      ),
+    );
+    assert.deepEqual(readdirSync(workspaces[12]), []);
   } finally {
     for (const workspace of workspaces) rmSync(workspace, { recursive: true, force: true });
   }
