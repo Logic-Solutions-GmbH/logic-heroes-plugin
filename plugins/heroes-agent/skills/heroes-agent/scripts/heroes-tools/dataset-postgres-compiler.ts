@@ -138,15 +138,16 @@ function filterSql(manifest: DatasetManifest): string[] {
       );
     }
     if (filter.operators.includes('one-of')) {
-      clauses.push(`(jsonb_typeof(${source}) = 'array' AND EXISTS (`
+      clauses.push(`(CASE WHEN jsonb_typeof(${source}) = 'array' THEN EXISTS (`
         + `SELECT 1 FROM jsonb_array_elements(${source}) AS ${identifier('item')}(${identifier('value')}) `
         + `WHERE ${column} = ${castJson(`${identifier('item')}.${identifier('value')} #>> '{}'`, field)}`
-        + '))');
+        + ') ELSE false END)');
     }
     if (filter.operators.includes('range')) {
-      clauses.push(`(jsonb_typeof(${source}) = 'object'`
-        + ` AND (NOT (${source} ? 'from') OR ${column} >= ${castJson(`${source} ->> 'from'`, field)})`
-        + ` AND (NOT (${source} ? 'to') OR ${column} <= ${castJson(`${source} ->> 'to'`, field)}))`);
+      clauses.push(`(CASE WHEN jsonb_typeof(${source}) = 'object' THEN `
+        + `(NOT (${source} ? 'from') OR ${column} >= ${castJson(`${source} ->> 'from'`, field)})`
+        + ` AND (NOT (${source} ? 'to') OR ${column} <= ${castJson(`${source} ->> 'to'`, field)})`
+        + ' ELSE false END)');
     }
     return `  AND (NOT (${identifier('p_filters')} ? ${literal(filter.field)}) OR ${clauses.join(' OR ')})`;
   });

@@ -82,6 +82,14 @@ test('compiles deterministic dataset DDL and refuses an unbacked destructive cha
     assert.match(sql, /grant usage on schema "heroes_agent_datasets" to "heroes_agent_acme"/i);
     assert.match(sql, /"ingest_acme__product_prices"/);
     assert.match(sql, /"query_acme__product_prices"/);
+    assert.match(
+      sql,
+      /CASE WHEN jsonb_typeof\("p_filters" -> 'region'\) = 'array' THEN EXISTS \(SELECT 1 FROM jsonb_array_elements\("p_filters" -> 'region'\).* ELSE false END/,
+    );
+    assert.match(
+      sql,
+      /CASE WHEN jsonb_typeof\("p_filters" -> 'price'\) = 'object' THEN \(NOT .* ELSE false END/,
+    );
 
     const removedField = fixture();
     removedField.fields = removedField.fields.filter((field: any) => field.name !== 'active');
