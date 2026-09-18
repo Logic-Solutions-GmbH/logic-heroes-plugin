@@ -22,11 +22,12 @@ function compile(
   manifest: unknown = fixture(),
   previousProposal?: DatasetProposal,
   backup?: { path: string; sha256: string; rowCount: number },
+  inputTenantKey: string = tenantKey,
 ): DatasetProposal {
   return writeDatasetProposal({
     workspace,
     manifest,
-    tenantKey,
+    tenantKey: inputTenantKey,
     migrationVersion,
     previousProposal,
     backup,
@@ -38,7 +39,7 @@ function fileBytes(workspace: string, proposal: DatasetProposal): Buffer[] {
 }
 
 test('compiles deterministic dataset DDL and refuses an unbacked destructive change', () => {
-  const workspaces = Array.from({ length: 9 }, () => mkdtempSync(join(tmpdir(), 'heroes-dataset-ddl-')));
+  const workspaces = Array.from({ length: 12 }, () => mkdtempSync(join(tmpdir(), 'heroes-dataset-ddl-')));
 
   try {
     const first = compile(workspaces[0]);
@@ -78,6 +79,7 @@ test('compiles deterministic dataset DDL and refuses an unbacked destructive cha
     assert.match(sql, /"tenant_key" = 'acme'/);
     assert.match(sql, /to "heroes_agent_acme"/i);
     assert.match(sql, /revoke all .* from public, "anon", "authenticated"/i);
+    assert.match(sql, /grant usage on schema "heroes_agent_datasets" to "heroes_agent_acme"/i);
     assert.match(sql, /"ingest_acme__product_prices"/);
     assert.match(sql, /"query_acme__product_prices"/);
 
@@ -115,6 +117,34 @@ test('compiles deterministic dataset DDL and refuses an unbacked destructive cha
     longTable.dataset = `${'a'.repeat(31)}.${'b'.repeat(31)}`;
     assert.throws(() => compile(workspaces[8], longTable), /table name exceeds 63 characters/i);
     assert.deepEqual(readdirSync(workspaces[8]), []);
+
+    const hyphenated = compile(workspaces[9], fixture(), undefined, undefined, 'acme-corp');
+    const hyphenatedSql = fileBytes(workspaces[9], hyphenated).map((bytes) => bytes.toString('utf8')).join('\n');
+    assert.match(hyphenatedSql, /to "heroes_agent_acme-corp"/i);
+    assert.match(hyphenatedSql, /"tenant_key" = 'acme-corp'/);
+
+    const boundaryManifest = fixture();
+    boundaryManifest.dataset = `${'a'.repeat(31)}.${'b'.repeat(30)}`;
+    const boundary = compile(workspaces[10], boundaryManifest, undefined, undefined, 'c'.repeat(63));
+    const boundarySql = fileBytes(workspaces[10], boundary).map((bytes) => bytes.toString('utf8')).join('\n');
+    const quotedIdentifiers = [...boundarySql.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+    assert.equal(
+      quotedIdentifiers.every((name) => Buffer.byteLength(name, 'utf8') <= 63),
+      true,
+      `generated PostgreSQL identifier exceeds 63 bytes: ${quotedIdentifiers.find(
+        (name) => Buffer.byteLength(name, 'utf8') > 63,
+      )}`,
+    );
+
+    const mixedFilterManifest = fixture();
+    mixedFilterManifest.filters.find((filter: any) => filter.field === 'price').operators = ['equals', 'range'];
+    const mixedFilter = compile(workspaces[11], mixedFilterManifest);
+    const mixedFilterSql = fileBytes(workspaces[11], mixedFilter).map((bytes) => bytes.toString('utf8')).join('\n');
+    assert.match(
+      mixedFilterSql,
+      /jsonb_typeof\("p_filters" -> 'price'\) = 'number' AND "row"\."price" =/,
+    );
+    assert.match(mixedFilterSql, /jsonb_typeof\("p_filters" -> 'price'\) = 'object'/);
   } finally {
     for (const workspace of workspaces) rmSync(workspace, { recursive: true, force: true });
   }

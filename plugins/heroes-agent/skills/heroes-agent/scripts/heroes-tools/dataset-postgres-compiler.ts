@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { posix } from 'node:path';
 import { parseDatasetManifest, type DatasetField, type DatasetManifest } from './dataset-manifest';
 
@@ -22,12 +23,35 @@ const SQL_TYPES: Record<DatasetField['type'], string> = {
   json: 'jsonb',
 };
 
+const JSON_TYPES: Record<DatasetField['type'], string> = {
+  text: 'string',
+  integer: 'number',
+  decimal: 'number',
+  boolean: 'boolean',
+  date: 'string',
+  timestamp: 'string',
+  json: 'object',
+};
+
 function identifier(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
 }
 
 function literal(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
+}
+
+function derivedIdentifier(...parts: string[]): string {
+  const name = parts.join('_');
+  if (Buffer.byteLength(name, 'utf8') <= 63) return name;
+  const suffix = `_${createHash('sha256').update(name).digest('hex').slice(0, 12)}`;
+  const prefixBytes = 63 - Buffer.byteLength(suffix, 'utf8');
+  let prefix = '';
+  for (const character of name) {
+    if (Buffer.byteLength(prefix + character, 'utf8') > prefixBytes) break;
+    prefix += character;
+  }
+  return `${prefix}${suffix}`;
 }
 
 function tableName(dataset: string): string {
@@ -48,8 +72,8 @@ function schemaSql(manifest: DatasetManifest, table: string): string {
     `  ${identifier(field.name)} ${SQL_TYPES[field.type]}${field.required ? ' NOT NULL' : ''}`
   ));
   const constraints = [
-    `  CONSTRAINT ${identifier(`${table}_identity_key`)} UNIQUE (${commaList(manifest.identity)})`,
-    `  CONSTRAINT ${identifier(`${table}_deduplication_key`)} UNIQUE (${commaList(manifest.deduplication)})`,
+    `  CONSTRAINT ${identifier(derivedIdentifier(table, 'identity', 'key'))} UNIQUE (${commaList(manifest.identity)})`,
+    `  CONSTRAINT ${identifier(derivedIdentifier(table, 'deduplication', 'key'))} UNIQUE (${commaList(manifest.deduplication)})`,
   ];
   const indexes = manifest.indexes.map((index) => (
     `CREATE ${index.unique ? 'UNIQUE ' : ''}INDEX ${identifier(index.name)} ON ${target} (${commaList(index.fields)});`
@@ -70,15 +94,16 @@ function schemaSql(manifest: DatasetManifest, table: string): string {
 
 function rlsSql(table: string, tenantKey: string): string {
   const target = `${identifier('heroes_agent_datasets')}.${identifier(table)}`;
-  const role = identifier(`heroes_agent_${tenantKey}`);
+  const role = identifier(derivedIdentifier('heroes', 'agent', tenantKey));
   const tenantCheck = `${identifier('tenant_key')} = ${literal(tenantKey)}`;
   return [
     `ALTER TABLE ${target} ENABLE ROW LEVEL SECURITY;`,
     `ALTER TABLE ${target} FORCE ROW LEVEL SECURITY;`,
-    `CREATE POLICY ${identifier(`${table}_tenant`)} ON ${target}`,
+    `CREATE POLICY ${identifier(derivedIdentifier(table, 'tenant'))} ON ${target}`,
     `  TO ${role}`,
     `  USING (${tenantCheck})`,
     `  WITH CHECK (${tenantCheck});`,
+    `GRANT USAGE ON SCHEMA ${identifier('heroes_agent_datasets')} TO ${role};`,
     `REVOKE ALL PRIVILEGES ON TABLE ${target} FROM PUBLIC, ${identifier('anon')}, ${identifier('authenticated')};`,
     `GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE ${target} TO ${role};`,
     '',
@@ -98,7 +123,7 @@ function filterSql(manifest: DatasetManifest): string[] {
 
     if (filter.operators.includes('equals')) {
       clauses.push(
-        `(jsonb_typeof(${source}) <> 'array' AND ${column} = ${castJson(`${source} #>> '{}'`, field)})`,
+        `(jsonb_typeof(${source}) = '${JSON_TYPES[field.type]}' AND ${column} = ${castJson(`${source} #>> '{}'`, field)})`,
       );
     }
     if (filter.operators.includes('one-of')) {
@@ -119,14 +144,14 @@ function filterSql(manifest: DatasetManifest): string[] {
 function functionsSql(manifest: DatasetManifest, table: string, tenantKey: string): string {
   const schema = identifier('heroes_agent_datasets');
   const target = `${schema}.${identifier(table)}`;
-  const role = identifier(`heroes_agent_${tenantKey}`);
+  const role = identifier(derivedIdentifier('heroes', 'agent', tenantKey));
   const fields = manifest.fields.map(({ name }) => name);
   const insertColumns = ['tenant_key', ...fields];
   const recordColumns = manifest.fields.map((field) => (
     `${identifier(field.name)} ${SQL_TYPES[field.type]}`
   ));
-  const ingest = `${schema}.${identifier(`ingest_${table}`)}`;
-  const query = `${schema}.${identifier(`query_${table}`)}`;
+  const ingest = `${schema}.${identifier(derivedIdentifier('ingest', table))}`;
+  const query = `${schema}.${identifier(derivedIdentifier('query', table))}`;
 
   return [
     `CREATE OR REPLACE FUNCTION ${ingest}(${identifier('p_rows')} jsonb)`,
@@ -171,8 +196,8 @@ export function compileDatasetPostgres(options: CompileDatasetPostgresOptions): 
   files: DatasetSqlFile[];
 } {
   const manifest = parseDatasetManifest(options.manifest);
-  if (!/^[a-z][a-z0-9_]*$/.test(options.tenantKey)) {
-    throw new Error(`Invalid tenant key: ${options.tenantKey}`);
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(options.tenantKey)) {
+    throw new Error('Tenant key must be normalized lower-case hyphen-case.');
   }
   if (!/^\d+$/.test(options.migrationVersion)) {
     throw new Error(`Invalid migration version: ${options.migrationVersion}`);
