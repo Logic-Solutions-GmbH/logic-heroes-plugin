@@ -93,7 +93,7 @@ if (request.action === 'project') {
     "access_row.privilege_type not in ('SELECT', 'INSERT', 'UPDATE', 'DELETE')",
     "access_row.privilege_type <> 'EXECUTE'", 'tenant_role.rolsuper',
     'tenant_role.rolbypassrls', 'pg_catalog.pg_auth_members', 'attribute.attacl',
-    'bool_and(coalesce(',
+    'bool_and(coalesce(', "'role', exists (", 'not tenant_role.rolinherit',
   ];
   if (required.some((part) => !request.query.includes(part))) {
     process.stderr.write('dataset verification query is incomplete');
@@ -120,6 +120,7 @@ if (request.action === 'project') {
     columns: installed,
     uniqueKeys: installed,
     indexes: installed,
+    role: installed,
     rls: installed,
     tenantPolicy: installed,
     grants: installed,
@@ -140,6 +141,9 @@ if (request.action === 'project') {
       || existsSync(process.env.FAKE_QUERY_LOG + '.extra-role-membership')
       || existsSync(process.env.FAKE_QUERY_LOG + '.extra-column-grant')) {
     verification.grants = false;
+  }
+  if (existsSync(process.env.FAKE_QUERY_LOG + '.unsafe-role-attributes')) {
+    verification.role = false;
   }
   if (existsSync(process.env.FAKE_QUERY_LOG + '.missing-function-search-path')) {
     verification.functions = false;
@@ -342,6 +346,7 @@ test('the generic dataset installer satisfies the rate installer contract', () =
       columns: true,
       uniqueKeys: true,
       indexes: true,
+      role: true,
       rls: true,
       tenantPolicy: true,
       grants: true,
@@ -443,7 +448,7 @@ test('catalog verification rejects policy, role, column, and function access dri
     { marker: '.extra-schema-role', field: 'grants' },
     { marker: '.extra-table-role', field: 'grants' },
     { marker: '.extra-function-role', field: 'functions' },
-    { marker: '.unsafe-role-attributes', field: 'grants' },
+    { marker: '.unsafe-role-attributes', field: 'role' },
     { marker: '.extra-role-membership', field: 'grants' },
     { marker: '.extra-column-grant', field: 'grants' },
     { marker: '.missing-function-search-path', field: 'functions' },

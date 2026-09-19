@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { canonicalJson } from '../dataset-kernel';
 import { writeDatasetProposal, type DatasetProposal } from '../dataset-proposal';
+import { buildDatasetPostgresVerificationQuery } from '../dataset-postgres-verifier';
 
 const toolsDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const fixturePath = join(toolsDir, 'test', 'fixtures', 'dataset-cli', 'product-prices.manifest.json');
@@ -76,6 +77,8 @@ test('compiles deterministic dataset DDL and refuses an unbacked destructive cha
     assert.match(sql, /unique \("source_file", "source_hash"\)/i);
     assert.match(sql, /enable row level security/i);
     assert.match(sql, /force row level security/i);
+    assert.match(sql, /if not exists \(select 1 from pg_catalog\.pg_roles where rolname = 'heroes_agent_acme'\)/i);
+    assert.match(sql, /create role "heroes_agent_acme" nologin nosuperuser nocreatedb nocreaterole noinherit/i);
     assert.match(sql, /"tenant_key" = 'acme'/);
     assert.match(sql, /to "heroes_agent_acme"/i);
     assert.match(sql, /revoke all .* from public, "anon", "authenticated"/i);
@@ -166,6 +169,18 @@ test('compiles deterministic dataset DDL and refuses an unbacked destructive cha
   } finally {
     for (const workspace of workspaces) rmSync(workspace, { recursive: true, force: true });
   }
+});
+
+test('verifies the generated tenant role and every required role flag', () => {
+  const query = buildDatasetPostgresVerificationQuery(fixture(), tenantKey);
+
+  assert.match(query, /'role', exists \(/);
+  assert.match(query, /tenant_role\.rolname = 'heroes_agent_acme'/);
+  assert.match(query, /not tenant_role\.rolcanlogin/);
+  assert.match(query, /not tenant_role\.rolsuper/);
+  assert.match(query, /not tenant_role\.rolcreatedb/);
+  assert.match(query, /not tenant_role\.rolcreaterole/);
+  assert.match(query, /not tenant_role\.rolinherit/);
 });
 
 test('understanding: the proposal hash binds the manifest, ordered SQL files, and optional backup evidence', () => {
