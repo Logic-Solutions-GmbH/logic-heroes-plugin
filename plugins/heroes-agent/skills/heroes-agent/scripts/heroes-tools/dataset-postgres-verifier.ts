@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { parseDatasetManifest, type DatasetManifest } from './dataset-manifest';
 
 export const DATASET_VERIFICATION_FIELDS = [
-  'columns', 'uniqueKeys', 'indexes', 'rls', 'tenantPolicy', 'grants', 'functions',
+  'columns', 'uniqueKeys', 'indexes', 'role', 'rls', 'tenantPolicy', 'grants', 'functions',
 ] as const;
 
 export type DatasetVerificationField = typeof DATASET_VERIFICATION_FIELDS[number];
@@ -139,6 +139,16 @@ select jsonb_build_object(
     ${uniqueKeys},
   'indexes',
     ${indexes},
+  'role', exists (
+    select 1
+    from pg_catalog.pg_roles tenant_role
+    where tenant_role.rolname = ${literal(role)}
+      and not tenant_role.rolcanlogin
+      and not tenant_role.rolsuper
+      and not tenant_role.rolcreatedb
+      and not tenant_role.rolcreaterole
+      and not tenant_role.rolinherit
+  ),
   'rls', exists (
     select 1
     from pg_catalog.pg_class relation

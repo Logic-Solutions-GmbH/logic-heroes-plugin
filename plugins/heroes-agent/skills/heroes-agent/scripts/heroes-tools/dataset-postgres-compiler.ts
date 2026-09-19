@@ -107,6 +107,14 @@ function rlsSql(table: string, tenantKey: string, roleName: string): string {
   const role = identifier(roleName);
   const tenantCheck = `${identifier('tenant_key')} = ${literal(tenantKey)}`;
   return [
+    'DO $role$',
+    'BEGIN',
+    `  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = ${literal(roleName)}) THEN`,
+    `    CREATE ROLE ${role} NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;`,
+    '  END IF;',
+    'END',
+    '$role$;',
+    '',
     `ALTER TABLE ${target} ENABLE ROW LEVEL SECURITY;`,
     `ALTER TABLE ${target} FORCE ROW LEVEL SECURITY;`,
     `CREATE POLICY ${identifier(derivedIdentifier(table, 'tenant'))} ON ${target}`,
