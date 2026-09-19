@@ -9,7 +9,7 @@ import test from 'node:test';
 const toolsDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryToolsPath = 'plugins/heroes-agent/skills/heroes-agent/scripts/heroes-tools';
 const gatePath = join(toolsDir, 'test', 'dataset-extension-proof.ts');
-const tsxPath = join(toolsDir, 'node_modules', '.bin', 'tsx');
+const tsxCliPath = join(toolsDir, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const packagePath = `${repositoryToolsPath}/package.json`;
 const existingProductionPath = `${repositoryToolsPath}/dataset.ts`;
 const existingSqlPath = 'assets/existing.sql';
@@ -56,7 +56,7 @@ function commit(repository: string, message: string): void {
 }
 
 function runGate(repository: string, base = 'main') {
-  const result = spawnSync(tsxPath, [gatePath, '--base', base], {
+  const result = spawnSync(process.execPath, [tsxCliPath, gatePath, '--base', base], {
     cwd: join(repository, repositoryToolsPath),
     encoding: 'utf8',
   });
@@ -101,7 +101,11 @@ test('dataset extension gate passes data-only changes and refuses every extensio
     commit(repository, 'add data-only fixture');
     assertPassed(runGate(repository));
 
-    const imported = spawnSync(tsxPath, ['--eval', `import(${JSON.stringify(pathToFileURL(gatePath).href)})`], {
+    const imported = spawnSync(process.execPath, [
+      tsxCliPath,
+      '--eval',
+      `import(${JSON.stringify(pathToFileURL(gatePath).href)})`,
+    ], {
       cwd: repository,
       encoding: 'utf8',
     });
@@ -158,6 +162,12 @@ test('dataset extension gate passes data-only changes and refuses every extensio
       plant: (repository) => write(repository, 'plugins/heroes-agent/scripts/second-domain.mjs', 'export {};\n'),
     },
     {
+      name: 'nested plugin script',
+      rule: 'script',
+      path: 'plugins/heroes-agent/scripts/nested/escape.mjs',
+      plant: (repository) => write(repository, 'plugins/heroes-agent/scripts/nested/escape.mjs', 'export {};\n'),
+    },
+    {
       name: 'new non-test package script',
       rule: 'script',
       path: `${packagePath}#scripts.prove:second-domain`,
@@ -190,6 +200,29 @@ test('dataset extension gate passes data-only changes and refuses every extensio
     const plantedPath = `${repositoryToolsPath}/untracked.ts`;
     write(repository, plantedPath, 'export {};\n');
     assertRefused(runGate(repository), 'production-typescript', plantedPath);
+  });
+
+  withRepository((repository) => {
+    write(repository, existingProductionPath, 'export const dataset = false;\n');
+    git(repository, 'add', existingProductionPath);
+    write(repository, existingProductionPath, 'export const dataset = true;\n');
+    assert.equal(git(repository, 'diff', '--cached', '--name-only'), existingProductionPath);
+    assert.equal(git(repository, 'diff', '--name-only'), existingProductionPath);
+    assertRefused(runGate(repository), 'production-typescript', existingProductionPath);
+  });
+
+  withRepository((repository) => {
+    write(repository, packagePath, `${JSON.stringify({ scripts: {
+      test: 'node --test',
+      'test:existing': 'node --test test/existing.test.ts',
+      'prove:masked': 'node test/masked.ts',
+    } }, null, 2)}\n`);
+    git(repository, 'add', packagePath);
+    write(repository, packagePath, `${JSON.stringify({ scripts: {
+      test: 'node --test',
+      'test:existing': 'node --test test/existing.test.ts',
+    } }, null, 2)}\n`);
+    assertRefused(runGate(repository), 'script', `${packagePath}#scripts.prove:masked`);
   });
 
   withRepository((repository) => {

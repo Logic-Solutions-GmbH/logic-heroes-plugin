@@ -45,11 +45,13 @@ function parseChanges(output: string): Change[] {
 }
 
 function changedPaths(repository: string, base: string): string[] {
-  const changes = parseChanges(git(repository, ['diff', '--name-status', '-z', base]));
-  const tracked = changes.flatMap(({ paths }) => paths);
+  const committed = parseChanges(git(repository, ['diff', '--name-status', '-z', base, 'HEAD']));
+  const staged = parseChanges(git(repository, ['diff', '--cached', '--name-status', '-z', 'HEAD']));
+  const unstaged = parseChanges(git(repository, ['diff', '--name-status', '-z']));
   const untracked = git(repository, ['ls-files', '--others', '--exclude-standard', '-z'])
     .split('\0')
     .filter(Boolean);
+  const tracked = [...committed, ...staged, ...unstaged].flatMap(({ paths }) => paths);
   return [...new Set([...tracked, ...untracked])].sort();
 }
 
@@ -64,9 +66,10 @@ function scriptsFromJson(source: string | undefined): Record<string, unknown> {
   }
 }
 
-function baseScripts(repository: string, base: string): Record<string, unknown> {
+function gitScripts(repository: string, revision: string): Record<string, unknown> {
   try {
-    return scriptsFromJson(git(repository, ['show', `${base}:${PACKAGE_PATH}`]));
+    const object = revision === ':' ? `:${PACKAGE_PATH}` : `${revision}:${PACKAGE_PATH}`;
+    return scriptsFromJson(git(repository, ['show', object]));
   } catch {
     return {};
   }
@@ -81,9 +84,10 @@ function sameValue(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function scriptEntryViolations(repository: string, base: string): Array<{ rule: 'script'; path: string }> {
-  const before = baseScripts(repository, base);
-  const after = workingScripts(repository);
+function changedScriptEntries(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+): Array<{ rule: 'script'; path: string }> {
   const names = [...new Set([...Object.keys(before), ...Object.keys(after)])].sort();
 
   return names.flatMap((name) => {
@@ -93,15 +97,25 @@ function scriptEntryViolations(repository: string, base: string): Array<{ rule: 
   });
 }
 
+function scriptEntryViolations(repository: string, base: string): Array<{ rule: 'script'; path: string }> {
+  const states = [
+    gitScripts(repository, base),
+    gitScripts(repository, 'HEAD'),
+    gitScripts(repository, ':'),
+    workingScripts(repository),
+  ];
+  const violations = states.slice(1).flatMap((after, index) => changedScriptEntries(states[index], after));
+  return [...new Map(violations.map((violation) => [violation.path, violation])).values()];
+}
+
 function pathViolations(paths: string[]): Array<{ rule: DatasetExtensionRule; path: string }> {
   const violations: Array<{ rule: DatasetExtensionRule; path: string }> = [];
   const productionPattern = new RegExp(`^${TOOLS_PATH.replaceAll('/', '\\/')}\/[^/]+\\.ts$`);
-  const directScriptPattern = new RegExp(`^${SCRIPT_DIRECTORY.replaceAll('/', '\\/')}\/[^/]+$`);
 
   for (const path of paths) {
     if (productionPattern.test(path)) violations.push({ rule: 'production-typescript', path });
     if (path.endsWith('.sql')) violations.push({ rule: 'tracked-sql', path });
-    if (directScriptPattern.test(path)) violations.push({ rule: 'script', path });
+    if (path.startsWith(`${SCRIPT_DIRECTORY}/`)) violations.push({ rule: 'script', path });
   }
   return violations;
 }
