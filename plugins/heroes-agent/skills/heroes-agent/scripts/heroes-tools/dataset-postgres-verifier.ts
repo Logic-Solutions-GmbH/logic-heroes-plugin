@@ -161,7 +161,37 @@ select jsonb_build_object(
     when pg_catalog.to_regnamespace('heroes_agent_datasets') is null
       or pg_catalog.to_regclass(${literal(target)}) is null
     then false
-    else has_schema_privilege(${literal(role)}, 'heroes_agent_datasets', 'USAGE')
+    else exists (
+      select 1
+      from pg_catalog.pg_roles tenant_role
+      where tenant_role.rolname = ${literal(role)}
+        and not tenant_role.rolsuper
+        and not tenant_role.rolcreatedb
+        and not tenant_role.rolcreaterole
+        and not tenant_role.rolcanlogin
+        and not tenant_role.rolreplication
+        and not tenant_role.rolbypassrls
+    )
+      and (
+        select count(*) = 1
+          and bool_and(member_role.rolname = 'postgres')
+          and bool_and(membership.admin_option)
+          and bool_and(not membership.inherit_option)
+          and bool_and(not membership.set_option)
+        from pg_catalog.pg_auth_members membership
+        join pg_catalog.pg_roles tenant_role
+          on tenant_role.rolname = ${literal(role)}
+         and membership.roleid = tenant_role.oid
+        join pg_catalog.pg_roles member_role on member_role.oid = membership.member
+      )
+      and not exists (
+        select 1
+        from pg_catalog.pg_auth_members membership
+        join pg_catalog.pg_roles tenant_role
+          on tenant_role.rolname = ${literal(role)}
+         and membership.member = tenant_role.oid
+      )
+      and has_schema_privilege(${literal(role)}, 'heroes_agent_datasets', 'USAGE')
       and not has_schema_privilege(${literal(role)}, 'heroes_agent_datasets', 'CREATE')
       and has_table_privilege(${literal(role)}, ${literal(target)}, 'SELECT')
       and has_table_privilege(${literal(role)}, ${literal(target)}, 'INSERT')
@@ -213,12 +243,23 @@ select jsonb_build_object(
             )
           )
       )
+      and not exists (
+        select 1
+        from pg_catalog.pg_attribute attribute
+        cross join lateral pg_catalog.aclexplode(attribute.attacl) access_row
+        where attribute.attrelid = pg_catalog.to_regclass(${literal(target)})
+          and attribute.attnum > 0
+          and not attribute.attisdropped
+      )
   end,
   'functions', (
     select count(*) = 2
       and bool_and(not procedure.prosecdef)
       and bool_and(pg_catalog.oidvectortypes(procedure.proargtypes) = 'jsonb')
-      and bool_and(procedure.proconfig @> array['search_path=pg_catalog, heroes_agent_datasets'])
+      and bool_and(coalesce(
+        procedure.proconfig @> array['search_path=pg_catalog, heroes_agent_datasets'],
+        false
+      ))
       and bool_and(has_function_privilege(${literal(role)}, procedure.oid, 'EXECUTE'))
       and bool_and(not has_function_privilege('anon', procedure.oid, 'EXECUTE'))
       and bool_and(not has_function_privilege('authenticated', procedure.oid, 'EXECUTE'))

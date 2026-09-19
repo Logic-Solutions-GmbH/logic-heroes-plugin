@@ -120,10 +120,8 @@ function attemptPath(dataset: string): string {
   return join(process.cwd(), 'self', 'supabase', 'datasets', dataset, 'install-attempt.json');
 }
 
-function installProjectDir(dataset: string, migrationVersion: string): string {
-  return join(
-    process.cwd(), 'self', 'supabase', 'datasets', dataset, 'install-project', migrationVersion,
-  );
+function installProjectDir(): string {
+  return join(process.cwd(), 'self', 'supabase', 'install-project');
 }
 
 function proposalMigrationVersion(proposal: DatasetProposal): string {
@@ -233,6 +231,7 @@ function writeConfirmed(
 run(async () => {
   const { positional, flags } = parseArgs(process.argv.slice(2));
   const action = positional[0];
+  let resultDataset: string | undefined;
   try {
     validateArguments(action, positional, flags);
     const binding = readBinding();
@@ -290,6 +289,7 @@ run(async () => {
     if (!/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/.test(dataset)) {
       throw new UsageError(`Invalid dataset key: ${dataset}`);
     }
+    resultDataset = dataset;
     const proposal = loadProposal(dataset);
 
     if (action === 'confirm') {
@@ -325,7 +325,8 @@ run(async () => {
       workspace: process.cwd(),
       bootstrapProject,
       migrations: migrationFiles(proposal),
-      projectDir: installProjectDir(dataset, proposal.migrationVersion),
+      projectDir: installProjectDir(),
+      ledgerProject: join(process.cwd(), 'self', 'supabase', 'project'),
     });
     const attempt = attemptPath(dataset);
     if (existsSync(attempt)) {
@@ -383,6 +384,7 @@ run(async () => {
     emit({
       status: invalid ? 'invalid' : 'refused',
       ...(typeof action === 'string' ? { action } : {}),
+      ...(resultDataset ? { dataset: resultDataset } : {}),
       reason: errorReason(error),
     });
     process.exitCode = invalid ? 2 : 4;

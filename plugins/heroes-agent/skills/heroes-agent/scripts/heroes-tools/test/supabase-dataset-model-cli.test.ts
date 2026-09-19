@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import {
-  chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync,
+  chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -48,6 +48,14 @@ function writeRateBinding(workspace: string): void {
   }, null, 2)}\n`);
 }
 
+function writeSecondManifest(workspace: string): string {
+  const path = join(workspace, 'product-costs.manifest.json');
+  const value = JSON.parse(readFileSync(manifest, 'utf8')) as Record<string, unknown>;
+  value.dataset = 'acme.product_costs';
+  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+  return path;
+}
+
 function writeQueryRunner(workspace: string): { path: string; log: string } {
   const path = join(workspace, 'fake-query-runner.mjs');
   const log = join(workspace, 'fake-query-runner.log');
@@ -68,18 +76,21 @@ if (request.action === 'project') {
     ref: 'test-project-ref', name: 'test-project', region: 'eu-central-1',
   }));
 } else if (request.action === 'query-read-only' && request.query.includes('dataset_catalog_verification')) {
+  const table = request.query.includes('acme__product_costs')
+    ? 'acme__product_costs' : 'acme__product_prices';
   const required = [
     'pg_catalog.pg_attribute', 'pg_catalog.pg_constraint', 'pg_catalog.pg_index',
     'relrowsecurity', 'relforcerowsecurity', 'pg_catalog.pg_policy',
     "has_schema_privilege", "has_table_privilege", 'pg_catalog.pg_proc',
-    "heroes_agent_acme", "ingest_acme__product_prices", "query_acme__product_prices",
-    "by_external_ref", "acme__product_prices_identity_key",
-    "acme__product_prices_deduplication_key",
+    "heroes_agent_acme", 'ingest_' + table, 'query_' + table,
+    "by_external_ref", table + '_identity_key', table + '_deduplication_key',
     'policy.polpermissive', 'policy.polname =', 'pg_catalog.pg_get_expr',
     'access_row.grantee not in', 'namespace_row.nspowner', 'relation.relowner',
     'procedure.proowner', 'access_row.is_grantable', "access_row.privilege_type <> 'USAGE'",
     "access_row.privilege_type not in ('SELECT', 'INSERT', 'UPDATE', 'DELETE')",
-    "access_row.privilege_type <> 'EXECUTE'",
+    "access_row.privilege_type <> 'EXECUTE'", 'tenant_role.rolsuper',
+    'tenant_role.rolbypassrls', 'pg_catalog.pg_auth_members', 'attribute.attacl',
+    'bool_and(coalesce(',
   ];
   if (required.some((part) => !request.query.includes(part))) {
     process.stderr.write('dataset verification query is incomplete');
@@ -114,6 +125,14 @@ if (request.action === 'project') {
   if (existsSync(process.env.FAKE_QUERY_LOG + '.extra-function-role')) {
     verification.functions = false;
   }
+  if (existsSync(process.env.FAKE_QUERY_LOG + '.unsafe-role-attributes')
+      || existsSync(process.env.FAKE_QUERY_LOG + '.extra-role-membership')
+      || existsSync(process.env.FAKE_QUERY_LOG + '.extra-column-grant')) {
+    verification.grants = false;
+  }
+  if (existsSync(process.env.FAKE_QUERY_LOG + '.missing-function-search-path')) {
+    verification.functions = false;
+  }
   process.stdout.write(JSON.stringify([{ verification }]));
 } else {
   process.stderr.write('unexpected query action');
@@ -141,36 +160,43 @@ function inspectStagedMigration() {
   const workdir = args[args.indexOf('--workdir') + 1];
   const migrationDir = join(workdir, 'supabase', 'migrations');
   const files = readdirSync(migrationDir).sort();
-  const datasetFiles = files.filter((file) => file !== '20260908000100_heroes_agent_bootstrap.sql');
-  if (datasetFiles.length !== 1 || datasetFiles[0] !== '${migrationVersion}_acme__product_prices.sql') {
-    process.stderr.write('expected one staged dataset migration');
+  const versions = files.map((file) => file.slice(0, 14));
+  if (!files.includes('20260908000100_heroes_agent_bootstrap.sql')
+      || new Set(versions).size !== versions.length) {
+    process.stderr.write('staged migration ledger is incomplete or has duplicate versions');
     process.exit(8);
   }
-  const content = readFileSync(join(migrationDir, datasetFiles[0]), 'utf8');
-  const schema = content.indexOf('CREATE SCHEMA');
-  const rls = content.indexOf('ENABLE ROW LEVEL SECURITY');
-  const functions = content.indexOf('CREATE OR REPLACE FUNCTION');
-  if (!(schema >= 0 && schema < rls && rls < functions)) {
-    process.stderr.write('staged dataset migration order is invalid');
-    process.exit(8);
+  for (const file of files.filter((candidate) => candidate.includes('_acme__'))) {
+    const content = readFileSync(join(migrationDir, file), 'utf8');
+    const schema = content.indexOf('CREATE SCHEMA');
+    const rls = content.indexOf('ENABLE ROW LEVEL SECURITY');
+    const functions = content.indexOf('CREATE OR REPLACE FUNCTION');
+    if (!(schema >= 0 && schema < rls && rls < functions)) {
+      process.stderr.write('staged dataset migration order is invalid');
+      process.exit(8);
+    }
   }
+  return { migrationDir, files, versions };
 }
 if (args.includes('--version')) {
   process.stdout.write('2.117.0\\n');
 } else if (args.includes('migration') && args.includes('list')) {
-  inspectStagedMigration();
-  const applied = existsSync(process.env.FAKE_SUPABASE_STATE);
-  process.stdout.write(JSON.stringify({ migrations: [
-    { local: '20260908000100', remote: '20260908000100' },
-    { local: '${migrationVersion}', remote: applied ? '${migrationVersion}' : '' },
-  ] }));
+  const { versions } = inspectStagedMigration();
+  const remote = existsSync(process.env.FAKE_SUPABASE_STATE)
+    ? JSON.parse(readFileSync(process.env.FAKE_SUPABASE_STATE, 'utf8'))
+    : ['20260908000100'];
+  const all = [...new Set([...versions, ...remote])].sort();
+  process.stdout.write(JSON.stringify({ migrations: all.map((version) => ({
+    local: versions.includes(version) ? version : '',
+    remote: remote.includes(version) ? version : '',
+  })) }));
 } else if (args.includes('db') && args.includes('push') && args.includes('--dry-run')) {
   inspectStagedMigration();
   process.stdout.write(existsSync(process.env.FAKE_SUPABASE_STATE)
     ? 'Linked project is up to date.' : 'Would apply dataset model.');
 } else if (args.includes('db') && args.includes('push')) {
-  inspectStagedMigration();
-  writeFileSync(process.env.FAKE_SUPABASE_STATE, 'applied');
+  const { versions } = inspectStagedMigration();
+  writeFileSync(process.env.FAKE_SUPABASE_STATE, JSON.stringify(versions));
   process.stdout.write('Finished supabase db push.');
 } else {
   process.stderr.write('unexpected Supabase command');
@@ -251,6 +277,7 @@ test('the generic dataset installer satisfies the rate installer contract', () =
     ], runner, supabase);
     assert.equal(wrongHash.status, 4, wrongHash.stderr || wrongHash.stdout);
     assert.equal(json(wrongHash).status, 'refused');
+    assert.equal(json(wrongHash).dataset, dataset);
     assert.match(json(wrongHash).reason, /proposal_mismatch/);
     assert.equal(existsSync(supabase.log), false);
 
@@ -299,6 +326,7 @@ test('the generic dataset installer satisfies the rate installer contract', () =
     ], runner, supabase);
     assert.equal(failedVerification.status, 4, failedVerification.stderr || failedVerification.stdout);
     assert.equal(json(failedVerification).status, 'refused');
+    assert.equal(json(failedVerification).dataset, dataset);
     assert.match(json(failedVerification).reason, /tenantPolicy/);
     assert.equal(existsSync(join(
       workspace, 'self', 'supabase', 'datasets', dataset, 'install-attempt.json',
@@ -325,12 +353,16 @@ test('the generic dataset installer satisfies the rate installer contract', () =
   }
 });
 
-test('catalog verification rejects an extra policy and every unexpected role grant', () => {
+test('catalog verification rejects policy, role, column, and function access drift', () => {
   const cases = [
     { marker: '.extra-policy', field: 'tenantPolicy' },
     { marker: '.extra-schema-role', field: 'grants' },
     { marker: '.extra-table-role', field: 'grants' },
     { marker: '.extra-function-role', field: 'functions' },
+    { marker: '.unsafe-role-attributes', field: 'grants' },
+    { marker: '.extra-role-membership', field: 'grants' },
+    { marker: '.extra-column-grant', field: 'grants' },
+    { marker: '.missing-function-search-path', field: 'functions' },
   ];
   for (const { marker, field } of cases) {
     const workspace = mkdtempSync(join(tmpdir(), 'heroes-supabase-dataset-drift-'));
@@ -343,7 +375,7 @@ test('catalog verification rejects an extra policy and every unexpected role gra
       ]);
       assert.equal(proposed.status, 0, proposed.stderr || proposed.stdout);
       const proposalHash = json(proposed).proposalHash as string;
-      writeFileSync(supabase.state, 'applied');
+      writeFileSync(supabase.state, JSON.stringify(['20260908000100', migrationVersion]));
       writeFileSync(`${runner.log}${marker}`, 'drift');
 
       const installed = runTool(workspace, 'supabase-dataset-model.ts', [
@@ -351,6 +383,7 @@ test('catalog verification rejects an extra policy and every unexpected role gra
       ], runner, supabase);
       assert.equal(installed.status, 4, installed.stderr || installed.stdout);
       assert.equal(json(installed).status, 'refused');
+      assert.equal(json(installed).dataset, dataset);
       assert.match(json(installed).reason, new RegExp(`differs in: ${field}`));
       assert.equal(existsSync(join(
         workspace, 'self', 'supabase', 'datasets', dataset, 'install-attempt.json',
@@ -358,6 +391,58 @@ test('catalog verification rejects an extra policy and every unexpected role gra
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }
+  }
+});
+
+test('a second dataset keeps the full local and remote migration ledger', () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'heroes-supabase-dataset-ledger-'));
+  const priorVersion = '20260912000100';
+  const secondVersion = '20260918190100';
+  try {
+    writeWorkspace(workspace);
+    const projectMigrations = join(workspace, 'self', 'supabase', 'project', 'supabase', 'migrations');
+    mkdirSync(projectMigrations, { recursive: true });
+    writeFileSync(join(projectMigrations, `${priorVersion}_existing.sql`), 'select 1;\n');
+    const runner = writeQueryRunner(workspace);
+    const supabase = writeFakeSupabase(workspace);
+    writeFileSync(supabase.state, JSON.stringify(['20260908000100', priorVersion]));
+
+    const firstProposal = runTool(workspace, 'supabase-dataset-model.ts', [
+      'propose', '--manifest', manifest, '--migration-version', migrationVersion, '--json',
+    ]);
+    assert.equal(firstProposal.status, 0, firstProposal.stderr || firstProposal.stdout);
+    const firstInstall = runTool(workspace, 'supabase-dataset-model.ts', [
+      'install', '--dataset', dataset, '--proposal-hash', json(firstProposal).proposalHash, '--json',
+    ], runner, supabase);
+    assert.equal(firstInstall.status, 0, firstInstall.stderr || firstInstall.stdout);
+
+    const secondManifest = writeSecondManifest(workspace);
+    const secondDataset = 'acme.product_costs';
+    const secondProposal = runTool(workspace, 'supabase-dataset-model.ts', [
+      'propose', '--manifest', secondManifest, '--migration-version', secondVersion, '--json',
+    ]);
+    assert.equal(secondProposal.status, 0, secondProposal.stderr || secondProposal.stdout);
+    const secondInstall = runTool(workspace, 'supabase-dataset-model.ts', [
+      'install', '--dataset', secondDataset,
+      '--proposal-hash', json(secondProposal).proposalHash, '--json',
+    ], runner, supabase);
+    assert.equal(secondInstall.status, 0, secondInstall.stderr || secondInstall.stdout);
+    assert.equal(json(secondInstall).dataset, secondDataset);
+
+    const staged = readdirSync(join(
+      workspace, 'self', 'supabase', 'install-project', 'supabase', 'migrations',
+    )).sort();
+    assert.deepEqual(staged, [
+      '20260908000100_heroes_agent_bootstrap.sql',
+      `${priorVersion}_existing.sql`,
+      `${migrationVersion}_acme__product_prices.sql`,
+      `${secondVersion}_acme__product_costs.sql`,
+    ]);
+    assert.deepEqual(JSON.parse(readFileSync(supabase.state, 'utf8')), [
+      '20260908000100', priorVersion, migrationVersion, secondVersion,
+    ]);
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
   }
 });
 

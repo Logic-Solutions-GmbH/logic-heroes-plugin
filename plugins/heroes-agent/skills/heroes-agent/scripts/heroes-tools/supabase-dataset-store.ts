@@ -1,5 +1,5 @@
 import {
-  chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync,
+  chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -109,11 +109,41 @@ function writeExact(content: string, target: string): void {
   chmodSync(target, 0o600);
 }
 
+function migrationVersion(file: string): string | undefined {
+  return /^(\d{14})_[^/]+\.sql$/.exec(file)?.[1];
+}
+
+function copyMigrationLedger(sourceProject: string, targetProject: string, reserved: Set<string>): void {
+  const sourceDir = join(sourceProject, 'supabase', 'migrations');
+  if (!existsSync(sourceDir)) return;
+  const targetDir = join(targetProject, 'supabase', 'migrations');
+  mkdirSync(targetDir, { recursive: true });
+  const targetVersions = new Set(readdirSync(targetDir).map(migrationVersion).filter(Boolean));
+  const sourceByVersion = new Map<string, string[]>();
+  for (const file of readdirSync(sourceDir)) {
+    const version = migrationVersion(file);
+    if (!version) continue;
+    sourceByVersion.set(version, [...(sourceByVersion.get(version) ?? []), file]);
+  }
+  for (const [version, files] of sourceByVersion) {
+    if (reserved.has(version) || targetVersions.has(version)) continue;
+    if (files.length !== 1) {
+      const generatedParts = new Set(files.map((file) => (
+        /_(schema|rls|functions)\.sql$/.exec(file)?.[1]
+      )));
+      if (files.length === 3 && generatedParts.size === 3 && !generatedParts.has(undefined)) continue;
+      throw failure('migration_history_mismatch', `Local migration version is duplicated: ${version}.`);
+    }
+    copyExact(join(sourceDir, files[0]), join(targetDir, files[0]));
+  }
+}
+
 export function prepareMigrations(options: {
   workspace: string;
   bootstrapProject: string;
   migrations: SupabaseMigrationFile[];
   projectDir?: string;
+  ledgerProject?: string;
 }): string {
   const projectDir = options.projectDir ?? join(options.workspace, 'self', 'supabase', 'project');
   copyExact(
@@ -124,6 +154,13 @@ export function prepareMigrations(options: {
     join(options.bootstrapProject, 'migrations', '20260908000100_heroes_agent_bootstrap.sql'),
     join(projectDir, 'supabase', 'migrations', '20260908000100_heroes_agent_bootstrap.sql'),
   );
+  if (options.ledgerProject) {
+    copyMigrationLedger(
+      options.ledgerProject,
+      projectDir,
+      new Set(options.migrations.map(({ version }) => version)),
+    );
+  }
   for (const migration of options.migrations) {
     const target = join(projectDir, 'supabase', 'migrations', migration.file);
     if (migration.source !== undefined && migration.content === undefined) {
