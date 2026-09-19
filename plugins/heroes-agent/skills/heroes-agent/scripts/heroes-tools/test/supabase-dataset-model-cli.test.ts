@@ -75,22 +75,46 @@ if (request.action === 'project') {
     "heroes_agent_acme", "ingest_acme__product_prices", "query_acme__product_prices",
     "by_external_ref", "acme__product_prices_identity_key",
     "acme__product_prices_deduplication_key",
+    'policy.polpermissive', 'policy.polname =', 'pg_catalog.pg_get_expr',
+    'access_row.grantee not in', 'namespace_row.nspowner', 'relation.relowner',
+    'procedure.proowner', 'access_row.is_grantable', "access_row.privilege_type <> 'USAGE'",
+    "access_row.privilege_type not in ('SELECT', 'INSERT', 'UPDATE', 'DELETE')",
+    "access_row.privilege_type <> 'EXECUTE'",
   ];
   if (required.some((part) => !request.query.includes(part))) {
     process.stderr.write('dataset verification query is incomplete');
     process.exit(8);
   }
+  if (request.query.includes(' like ')
+      || !request.query.includes("= '(tenant_key = ''acme''::text)'")
+      || request.query.split('policy.polname').length - 1 !== 1
+      || request.query.split('access_row.grantee not in').length - 1 !== 3
+      || request.query.split('access_row.is_grantable').length - 1 !== 3) {
+    process.stderr.write('dataset verification query does not require exact policy and ACL state');
+    process.exit(8);
+  }
   const installed = existsSync(process.env.FAKE_SUPABASE_STATE);
-  const pass = installed && !existsSync(process.env.FAKE_QUERY_LOG + '.fail-verification');
-  process.stdout.write(JSON.stringify([{ verification: {
-    columns: pass,
-    uniqueKeys: pass,
-    indexes: pass,
-    rls: pass,
-    tenantPolicy: pass,
-    grants: pass,
-    functions: pass,
-  } }]));
+  const verification = {
+    columns: installed,
+    uniqueKeys: installed,
+    indexes: installed,
+    rls: installed,
+    tenantPolicy: installed,
+    grants: installed,
+    functions: installed,
+  };
+  if (existsSync(process.env.FAKE_QUERY_LOG + '.fail-verification')
+      || existsSync(process.env.FAKE_QUERY_LOG + '.extra-policy')) {
+    verification.tenantPolicy = false;
+  }
+  if (existsSync(process.env.FAKE_QUERY_LOG + '.extra-schema-role')
+      || existsSync(process.env.FAKE_QUERY_LOG + '.extra-table-role')) {
+    verification.grants = false;
+  }
+  if (existsSync(process.env.FAKE_QUERY_LOG + '.extra-function-role')) {
+    verification.functions = false;
+  }
+  process.stdout.write(JSON.stringify([{ verification }]));
 } else {
   process.stderr.write('unexpected query action');
   process.exit(9);
@@ -105,25 +129,47 @@ function writeFakeSupabase(workspace: string): { path: string; log: string; stat
   const log = join(workspace, 'fake-supabase.log');
   const state = join(workspace, 'fake-supabase.state');
   writeFileSync(path, `#!/usr/bin/env node
-import { appendFileSync, existsSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 const args = process.argv.slice(2);
 appendFileSync(process.env.FAKE_SUPABASE_LOG, JSON.stringify({
   args,
   hasAccessToken: process.env.SUPABASE_ACCESS_TOKEN === 'test-access-secret',
   hasDatabasePassword: process.env.SUPABASE_DB_PASSWORD === 'test-database-secret',
 }) + '\\n');
+function inspectStagedMigration() {
+  const workdir = args[args.indexOf('--workdir') + 1];
+  const migrationDir = join(workdir, 'supabase', 'migrations');
+  const files = readdirSync(migrationDir).sort();
+  const datasetFiles = files.filter((file) => file !== '20260908000100_heroes_agent_bootstrap.sql');
+  if (datasetFiles.length !== 1 || datasetFiles[0] !== '${migrationVersion}_acme__product_prices.sql') {
+    process.stderr.write('expected one staged dataset migration');
+    process.exit(8);
+  }
+  const content = readFileSync(join(migrationDir, datasetFiles[0]), 'utf8');
+  const schema = content.indexOf('CREATE SCHEMA');
+  const rls = content.indexOf('ENABLE ROW LEVEL SECURITY');
+  const functions = content.indexOf('CREATE OR REPLACE FUNCTION');
+  if (!(schema >= 0 && schema < rls && rls < functions)) {
+    process.stderr.write('staged dataset migration order is invalid');
+    process.exit(8);
+  }
+}
 if (args.includes('--version')) {
   process.stdout.write('2.117.0\\n');
 } else if (args.includes('migration') && args.includes('list')) {
+  inspectStagedMigration();
   const applied = existsSync(process.env.FAKE_SUPABASE_STATE);
   process.stdout.write(JSON.stringify({ migrations: [
     { local: '20260908000100', remote: '20260908000100' },
     { local: '${migrationVersion}', remote: applied ? '${migrationVersion}' : '' },
   ] }));
 } else if (args.includes('db') && args.includes('push') && args.includes('--dry-run')) {
+  inspectStagedMigration();
   process.stdout.write(existsSync(process.env.FAKE_SUPABASE_STATE)
     ? 'Linked project is up to date.' : 'Would apply dataset model.');
 } else if (args.includes('db') && args.includes('push')) {
+  inspectStagedMigration();
   writeFileSync(process.env.FAKE_SUPABASE_STATE, 'applied');
   process.stdout.write('Finished supabase db push.');
 } else {
@@ -276,6 +322,42 @@ test('the generic dataset installer satisfies the rate installer contract', () =
     );
   } finally {
     rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test('catalog verification rejects an extra policy and every unexpected role grant', () => {
+  const cases = [
+    { marker: '.extra-policy', field: 'tenantPolicy' },
+    { marker: '.extra-schema-role', field: 'grants' },
+    { marker: '.extra-table-role', field: 'grants' },
+    { marker: '.extra-function-role', field: 'functions' },
+  ];
+  for (const { marker, field } of cases) {
+    const workspace = mkdtempSync(join(tmpdir(), 'heroes-supabase-dataset-drift-'));
+    try {
+      writeWorkspace(workspace);
+      const runner = writeQueryRunner(workspace);
+      const supabase = writeFakeSupabase(workspace);
+      const proposed = runTool(workspace, 'supabase-dataset-model.ts', [
+        'propose', '--manifest', manifest, '--migration-version', migrationVersion, '--json',
+      ]);
+      assert.equal(proposed.status, 0, proposed.stderr || proposed.stdout);
+      const proposalHash = json(proposed).proposalHash as string;
+      writeFileSync(supabase.state, 'applied');
+      writeFileSync(`${runner.log}${marker}`, 'drift');
+
+      const installed = runTool(workspace, 'supabase-dataset-model.ts', [
+        'install', '--dataset', dataset, '--proposal-hash', proposalHash, '--json',
+      ], runner, supabase);
+      assert.equal(installed.status, 4, installed.stderr || installed.stdout);
+      assert.equal(json(installed).status, 'refused');
+      assert.match(json(installed).reason, new RegExp(`differs in: ${field}`));
+      assert.equal(existsSync(join(
+        workspace, 'self', 'supabase', 'datasets', dataset, 'install-attempt.json',
+      )), true);
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
   }
 });
 

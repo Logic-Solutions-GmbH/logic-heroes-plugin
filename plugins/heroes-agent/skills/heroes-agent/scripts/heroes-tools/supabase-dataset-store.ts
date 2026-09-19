@@ -15,7 +15,8 @@ export interface SupabaseQueryRequest {
 
 export interface SupabaseMigrationFile {
   file: string;
-  source: string;
+  source?: string;
+  content?: string;
   version: string;
 }
 
@@ -96,12 +97,25 @@ export function copyExact(source: string, target: string): void {
   copyFileSync(source, target);
 }
 
+function writeExact(content: string, target: string): void {
+  if (existsSync(target)) {
+    if (readFileSync(target, 'utf8') !== content) {
+      throw failure('migration_history_mismatch', `Local Supabase migration diverged: ${target}.`);
+    }
+    return;
+  }
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, content, { mode: 0o600 });
+  chmodSync(target, 0o600);
+}
+
 export function prepareMigrations(options: {
   workspace: string;
   bootstrapProject: string;
   migrations: SupabaseMigrationFile[];
+  projectDir?: string;
 }): string {
-  const projectDir = join(options.workspace, 'self', 'supabase', 'project');
+  const projectDir = options.projectDir ?? join(options.workspace, 'self', 'supabase', 'project');
   copyExact(
     join(options.bootstrapProject, 'config.toml'),
     join(projectDir, 'supabase', 'config.toml'),
@@ -111,7 +125,14 @@ export function prepareMigrations(options: {
     join(projectDir, 'supabase', 'migrations', '20260908000100_heroes_agent_bootstrap.sql'),
   );
   for (const migration of options.migrations) {
-    copyExact(migration.source, join(projectDir, 'supabase', 'migrations', migration.file));
+    const target = join(projectDir, 'supabase', 'migrations', migration.file);
+    if (migration.source !== undefined && migration.content === undefined) {
+      copyExact(migration.source, target);
+    } else if (migration.content !== undefined && migration.source === undefined) {
+      writeExact(migration.content, target);
+    } else {
+      throw failure('configuration_missing', 'A staged migration needs exactly one source.');
+    }
   }
   return projectDir;
 }

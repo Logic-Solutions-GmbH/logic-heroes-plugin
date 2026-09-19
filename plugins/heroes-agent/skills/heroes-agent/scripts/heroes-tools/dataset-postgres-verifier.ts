@@ -91,6 +91,7 @@ export function buildDatasetPostgresVerificationQuery(
   const role = `heroes_agent_${tenantKey}`;
   const ingest = derivedIdentifier('ingest', table);
   const query = derivedIdentifier('query', table);
+  const tenantExpression = `(tenant_key = '${tenantKey}'::text)`;
   const expectedColumns = [
     { name: 'tenant_key', type: 'text', required: true },
     ...manifest.fields.map((field) => ({
@@ -147,13 +148,14 @@ select jsonb_build_object(
   ),
   'tenantPolicy', (
     select count(*) = 1
+      and bool_and(policy.polname = ${literal(derivedIdentifier(table, 'tenant'))})
+      and bool_and(policy.polpermissive)
       and bool_and(policy.polcmd = '*')
       and bool_and(policy.polroles = array[(select oid from pg_catalog.pg_roles where rolname = ${literal(role)})])
-      and bool_and(pg_catalog.pg_get_expr(policy.polqual, policy.polrelid) like ${literal(`%tenant_key = '${tenantKey}'::text%`)})
-      and bool_and(pg_catalog.pg_get_expr(policy.polwithcheck, policy.polrelid) like ${literal(`%tenant_key = '${tenantKey}'::text%`)})
+      and bool_and(pg_catalog.pg_get_expr(policy.polqual, policy.polrelid) = ${literal(tenantExpression)})
+      and bool_and(pg_catalog.pg_get_expr(policy.polwithcheck, policy.polrelid) = ${literal(tenantExpression)})
     from pg_catalog.pg_policy policy
     where policy.polrelid = pg_catalog.to_regclass(${literal(target)})
-      and policy.polname = ${literal(derivedIdentifier(table, 'tenant'))}
   ),
   'grants', case
     when pg_catalog.to_regnamespace('heroes_agent_datasets') is null
@@ -179,7 +181,16 @@ select jsonb_build_object(
           coalesce(namespace_row.nspacl, pg_catalog.acldefault('n'::"char", namespace_row.nspowner))
         ) access_row
         where namespace_row.nspname = 'heroes_agent_datasets'
-          and access_row.grantee = 0
+          and (
+            access_row.grantee not in (
+              namespace_row.nspowner,
+              (select oid from pg_catalog.pg_roles where rolname = ${literal(role)})
+            )
+            or (
+              access_row.grantee = (select oid from pg_catalog.pg_roles where rolname = ${literal(role)})
+              and (access_row.privilege_type <> 'USAGE' or access_row.is_grantable)
+            )
+          )
       )
       and not exists (
         select 1
@@ -188,7 +199,19 @@ select jsonb_build_object(
           coalesce(relation.relacl, pg_catalog.acldefault('r'::"char", relation.relowner))
         ) access_row
         where relation.oid = pg_catalog.to_regclass(${literal(target)})
-          and access_row.grantee = 0
+          and (
+            access_row.grantee not in (
+              relation.relowner,
+              (select oid from pg_catalog.pg_roles where rolname = ${literal(role)})
+            )
+            or (
+              access_row.grantee = (select oid from pg_catalog.pg_roles where rolname = ${literal(role)})
+              and (
+                access_row.privilege_type not in ('SELECT', 'INSERT', 'UPDATE', 'DELETE')
+                or access_row.is_grantable
+              )
+            )
+          )
       )
   end,
   'functions', (
@@ -204,7 +227,14 @@ select jsonb_build_object(
         from pg_catalog.aclexplode(
           coalesce(procedure.proacl, pg_catalog.acldefault('f'::"char", procedure.proowner))
         ) access_row
-        where access_row.grantee = 0
+        where access_row.grantee not in (
+            procedure.proowner,
+            (select oid from pg_catalog.pg_roles where rolname = ${literal(role)})
+          )
+          or (
+            access_row.grantee = (select oid from pg_catalog.pg_roles where rolname = ${literal(role)})
+            and (access_row.privilege_type <> 'EXECUTE' or access_row.is_grantable)
+          )
       ))
     from pg_catalog.pg_proc procedure
     join pg_catalog.pg_namespace procedure_namespace

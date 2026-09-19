@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import {
   chmodSync, existsSync, readFileSync, unlinkSync, writeFileSync,
 } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { canonicalJson } from './dataset-kernel';
 import { parseDatasetManifest, type DatasetManifest } from './dataset-manifest';
@@ -120,6 +120,12 @@ function attemptPath(dataset: string): string {
   return join(process.cwd(), 'self', 'supabase', 'datasets', dataset, 'install-attempt.json');
 }
 
+function installProjectDir(dataset: string, migrationVersion: string): string {
+  return join(
+    process.cwd(), 'self', 'supabase', 'datasets', dataset, 'install-project', migrationVersion,
+  );
+}
+
 function proposalMigrationVersion(proposal: DatasetProposal): string {
   const versions = new Set(proposal.files.map(({ path }) => (
     /^self\/supabase\/project\/supabase\/migrations\/(\d{14})_[^/]+\.sql$/.exec(path)?.[1]
@@ -165,11 +171,24 @@ function loadProposal(dataset: string): StoredProposal {
 }
 
 function migrationFiles(proposal: StoredProposal): SupabaseMigrationFile[] {
-  return proposal.files.map(({ path }) => ({
-    file: basename(path),
-    source: join(process.cwd(), path),
+  const orderedSuffixes = ['_schema.sql', '_rls.sql', '_functions.sql'];
+  const orderedPaths = orderedSuffixes.map((suffix) => {
+    const matches = proposal.files.filter(({ path }) => path.endsWith(suffix));
+    if (matches.length !== 1) {
+      throw failure('proposal_invalid', `Dataset proposal needs one ${suffix.slice(1)} file.`);
+    }
+    return matches[0].path;
+  });
+  const content = orderedPaths.map((path) => {
+    const source = readFileSync(join(process.cwd(), path), 'utf8');
+    return source.endsWith('\n') ? source : `${source}\n`;
+  }).join('\n');
+  const table = proposal.manifest.dataset.replaceAll('.', '__');
+  return [{
+    file: `${proposal.migrationVersion}_${table}.sql`,
+    content,
     version: proposal.migrationVersion,
-  }));
+  }];
 }
 
 function emit(result: Result): void {
@@ -303,7 +322,10 @@ run(async () => {
     }
     requireCli(toolsDir);
     const projectDir = prepareMigrations({
-      workspace: process.cwd(), bootstrapProject, migrations: migrationFiles(proposal),
+      workspace: process.cwd(),
+      bootstrapProject,
+      migrations: migrationFiles(proposal),
+      projectDir: installProjectDir(dataset, proposal.migrationVersion),
     });
     const attempt = attemptPath(dataset);
     if (existsSync(attempt)) {
