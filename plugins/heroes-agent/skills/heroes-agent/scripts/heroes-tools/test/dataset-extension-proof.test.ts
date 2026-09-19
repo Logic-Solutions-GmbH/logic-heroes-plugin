@@ -226,6 +226,27 @@ test('dataset extension gate passes data-only changes and refuses every extensio
   });
 
   withRepository((repository) => {
+    write(repository, packagePath, `${JSON.stringify({ scripts: {
+      test: 'node --test',
+      'test:existing': 'node --test test/existing.test.ts',
+      'test:second-domain': 'node --test test/second-domain-head.test.ts',
+    } }, null, 2)}\n`);
+    commit(repository, 'add second domain test script');
+    write(repository, packagePath, `${JSON.stringify({ scripts: {
+      test: 'node --test',
+      'test:existing': 'node --test test/existing.test.ts',
+      'test:second-domain': 'node --test test/second-domain-index.test.ts',
+    } }, null, 2)}\n`);
+    git(repository, 'add', packagePath);
+    write(repository, packagePath, `${JSON.stringify({ scripts: {
+      test: 'node --test',
+      'test:existing': 'node --test test/existing.test.ts',
+      'test:second-domain': 'node --test test/second-domain-working.test.ts',
+    } }, null, 2)}\n`);
+    assertPassed(runGate(repository));
+  });
+
+  withRepository((repository) => {
     const result = runGate(repository);
     assert.equal(result.exitCode, 2, result.stderr || JSON.stringify(result.envelope));
     assert.equal(result.envelope.status, 'invalid');

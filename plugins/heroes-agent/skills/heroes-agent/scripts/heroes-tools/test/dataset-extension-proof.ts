@@ -104,7 +104,7 @@ function scriptEntryViolations(repository: string, base: string): Array<{ rule: 
     gitScripts(repository, ':'),
     workingScripts(repository),
   ];
-  const violations = states.slice(1).flatMap((after, index) => changedScriptEntries(states[index], after));
+  const violations = states.slice(1).flatMap((after) => changedScriptEntries(states[0], after));
   return [...new Map(violations.map((violation) => [violation.path, violation])).values()];
 }
 
