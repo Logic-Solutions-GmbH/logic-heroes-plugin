@@ -118,11 +118,11 @@ function confirmedPath(dataset: string): string {
 }
 
 function attemptPath(): string {
-  return join(process.cwd(), 'self', 'supabase', 'dataset-migration-attempt.json');
+  return join(process.cwd(), 'self', 'supabase', 'migration-attempt.json');
 }
 
 function installProjectDir(): string {
-  return join(process.cwd(), 'self', 'supabase', 'install-project');
+  return join(process.cwd(), 'self', 'supabase', 'project');
 }
 
 function proposalMigrationVersion(proposal: DatasetProposal): string {
@@ -264,7 +264,7 @@ function writeConfirmed(
 run(async () => {
   const { positional, flags } = parseArgs(process.argv.slice(2));
   const action = positional[0];
-  let resultDataset: string | undefined;
+  const resultDataset = flagString(flags, 'dataset');
   try {
     validateArguments(action, positional, flags);
     const binding = readBinding();
@@ -318,7 +318,6 @@ run(async () => {
     }
 
     const dataset = requireFlag(flags, 'dataset');
-    resultDataset = dataset;
     if (!/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/.test(dataset)) {
       throw new UsageError(`Invalid dataset key: ${dataset}`);
     }
@@ -355,14 +354,23 @@ run(async () => {
     requireCli(toolsDir);
     const attempt = attemptPath();
     if (existsSync(attempt)) {
-      throw failure('migration_partial', 'A prior dataset migration attempt requires operator inspection.');
+      throw failure('migration_partial', 'A prior migration attempt requires operator inspection.');
     }
+    const attemptRecord = {
+      schemaVersion: '1.0',
+      dataset,
+      heroesTenantKey: binding.heroesTenantKey,
+      supabaseProjectRef: binding.supabaseProjectRef,
+      migrationVersion: proposal.migrationVersion,
+      proposalHash: proposal.hash,
+      status: 'staging',
+    };
+    writeAttempt(attempt, attemptRecord);
     const projectDir = prepareMigrations({
       workspace: process.cwd(),
       bootstrapProject,
       migrations: migrationFiles(proposal),
       projectDir: installProjectDir(),
-      ledgerProject: join(process.cwd(), 'self', 'supabase', 'project'),
     });
     const historyOptions = {
       requiredMigrations: [{ version: proposal.migrationVersion }],
@@ -373,17 +381,8 @@ run(async () => {
       rows: before, requireAll: false, ...historyOptions,
     });
     dryRunPush(toolsDir, projectDir, binding.supabaseProjectRef);
-    const attemptRecord = {
-      schemaVersion: '1.0',
-      dataset,
-      heroesTenantKey: binding.heroesTenantKey,
-      supabaseProjectRef: binding.supabaseProjectRef,
-      migrationVersion: proposal.migrationVersion,
-      proposalHash: proposal.hash,
-      status: 'applying',
-    };
     if (!alreadyApplied) {
-      writeAttempt(attempt, attemptRecord);
+      writeAttempt(attempt, { ...attemptRecord, status: 'applying' });
       applyPush(toolsDir, projectDir, binding.supabaseProjectRef);
       assertMigrationHistory({
         rows: migrationRows(toolsDir, projectDir, binding.supabaseProjectRef),
@@ -391,7 +390,6 @@ run(async () => {
         ...historyOptions,
       });
     }
-    if (!existsSync(attempt)) writeAttempt(attempt, attemptRecord);
     const checked = await verification(binding, proposal.manifest);
     assertDatasetPostgresVerification(checked);
     writeConfirmed(confirmedPath(dataset), binding, proposal, checked);

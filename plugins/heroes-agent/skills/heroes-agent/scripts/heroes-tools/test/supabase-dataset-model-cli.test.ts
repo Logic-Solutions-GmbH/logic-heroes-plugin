@@ -205,6 +205,10 @@ if (args.includes('--version')) {
   })) }));
 } else if (args.includes('db') && args.includes('push') && args.includes('--dry-run')) {
   inspectStagedMigration();
+  if (existsSync(process.env.FAKE_SUPABASE_LOG + '.fail-dry-run')) {
+    process.stderr.write('simulated migration dry-run failure');
+    process.exit(8);
+  }
   process.stdout.write(existsSync(process.env.FAKE_SUPABASE_STATE)
     ? 'Linked project is up to date.' : 'Would apply dataset model.');
 } else if (args.includes('db') && args.includes('push')) {
@@ -347,7 +351,7 @@ test('the generic dataset installer satisfies the rate installer contract', () =
     assert.equal(json(failedVerification).dataset, dataset);
     assert.match(json(failedVerification).reason, /tenantPolicy/);
     assert.equal(existsSync(join(
-      workspace, 'self', 'supabase', 'dataset-migration-attempt.json',
+      workspace, 'self', 'supabase', 'migration-attempt.json',
     )), true);
 
     const queryCalls = readFileSync(runner.log, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
@@ -404,7 +408,7 @@ test('catalog verification rejects policy, role, column, and function access dri
       assert.equal(json(installed).dataset, dataset);
       assert.match(json(installed).reason, new RegExp(`differs in: ${field}`));
       assert.equal(existsSync(join(
-        workspace, 'self', 'supabase', 'dataset-migration-attempt.json',
+        workspace, 'self', 'supabase', 'migration-attempt.json',
       )), true);
     } finally {
       rmSync(workspace, { recursive: true, force: true });
@@ -448,7 +452,7 @@ test('a second dataset keeps the full local and remote migration ledger', () => 
     assert.equal(json(secondInstall).dataset, secondDataset);
 
     const staged = readdirSync(join(
-      workspace, 'self', 'supabase', 'install-project', 'supabase', 'migrations',
+      workspace, 'self', 'supabase', 'project', 'supabase', 'migrations',
     )).sort();
     assert.deepEqual(staged, [
       '20260908000100_heroes_agent_bootstrap.sql',
@@ -464,21 +468,23 @@ test('a second dataset keeps the full local and remote migration ledger', () => 
   }
 });
 
-test('a dataset proposal leaves the rate installer migration directory compatible', () => {
+test('a generic install leaves one canonical ledger for a later rate install', () => {
   const workspace = mkdtempSync(join(tmpdir(), 'heroes-supabase-rate-after-dataset-'));
   try {
     writeWorkspace(workspace);
+    writeRateBinding(workspace);
+    const runner = writeQueryRunner(workspace);
+    const supabase = writeFakeSupabase(workspace);
     const datasetProposal = runTool(workspace, 'supabase-dataset-model.ts', [
       'propose', '--manifest', manifest, '--migration-version', migrationVersion, '--json',
     ]);
     assert.equal(datasetProposal.status, 0, datasetProposal.stderr || datasetProposal.stdout);
-    assert.equal(existsSync(join(
-      workspace, 'self', 'supabase', 'project', 'supabase', 'migrations',
-    )), false);
+    const datasetInstall = runTool(workspace, 'supabase-dataset-model.ts', [
+      'install', '--dataset', dataset,
+      '--proposal-hash', json(datasetProposal).proposalHash, '--json',
+    ], runner, supabase);
+    assert.equal(datasetInstall.status, 0, datasetInstall.stderr || datasetInstall.stdout);
 
-    writeRateBinding(workspace);
-    const runner = writeQueryRunner(workspace);
-    const supabase = writeFakeSupabase(workspace);
     const rateProposal = runTool(workspace, 'supabase-rate-model.ts', ['propose']);
     assert.equal(rateProposal.status, 0, rateProposal.stderr || rateProposal.stdout);
     const rateInstall = runTool(workspace, 'supabase-rate-model.ts', [
@@ -495,13 +501,14 @@ test('a dataset proposal leaves the rate installer migration directory compatibl
       '20260912000100_acme_rate_model.sql',
       '20260912000200_acme_rate_context_key.sql',
       '20260912000300_acme_rate_query_context.sql',
+      `${migrationVersion}_acme__product_prices.sql`,
     ]);
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }
 });
 
-test('a failed dataset migration blocks every later dataset in the shared ledger', () => {
+test('a failed dataset dry run blocks every later dataset in the shared ledger', () => {
   const workspace = mkdtempSync(join(tmpdir(), 'heroes-supabase-dataset-attempt-'));
   const secondVersion = '20260918190100';
   try {
@@ -512,15 +519,16 @@ test('a failed dataset migration blocks every later dataset in the shared ledger
       'propose', '--manifest', manifest, '--migration-version', migrationVersion, '--json',
     ]);
     assert.equal(firstProposal.status, 0, firstProposal.stderr || firstProposal.stdout);
-    writeFileSync(`${supabase.log}.fail-push`, 'fail');
+    writeFileSync(`${supabase.log}.fail-dry-run`, 'fail');
     const failedFirst = runTool(workspace, 'supabase-dataset-model.ts', [
       'install', '--dataset', dataset, '--proposal-hash', json(firstProposal).proposalHash, '--json',
     ], runner, supabase);
     assert.equal(failedFirst.status, 4, failedFirst.stderr || failedFirst.stdout);
     assert.match(json(failedFirst).reason, /migration_failed/);
-    const attempt = join(workspace, 'self', 'supabase', 'dataset-migration-attempt.json');
+    const attempt = join(workspace, 'self', 'supabase', 'migration-attempt.json');
     assert.equal(existsSync(attempt), true);
-    rmSync(`${supabase.log}.fail-push`);
+    assert.equal(existsSync(supabase.state), false);
+    rmSync(`${supabase.log}.fail-dry-run`);
 
     const secondDataset = 'acme.product_costs';
     const secondProposal = runTool(workspace, 'supabase-dataset-model.ts', [
@@ -540,9 +548,69 @@ test('a failed dataset migration blocks every later dataset in the shared ledger
       .slice(callsBeforeSecond).map((line) => JSON.parse(line));
     assert.deepEqual(laterCalls.map(({ args }) => args), [['--version']]);
     assert.equal(existsSync(join(
-      workspace, 'self', 'supabase', 'install-project', 'supabase', 'migrations',
+      workspace, 'self', 'supabase', 'project', 'supabase', 'migrations',
       `${secondVersion}_acme__product_costs.sql`,
     )), false);
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test('a failed rate migration blocks a later generic install through the global marker', () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'heroes-supabase-rate-attempt-'));
+  try {
+    writeWorkspace(workspace);
+    writeRateBinding(workspace);
+    const runner = writeQueryRunner(workspace);
+    const supabase = writeFakeSupabase(workspace);
+    const rateProposal = runTool(workspace, 'supabase-rate-model.ts', ['propose']);
+    assert.equal(rateProposal.status, 0, rateProposal.stderr || rateProposal.stdout);
+    writeFileSync(`${supabase.log}.fail-push`, 'fail');
+    const failedRate = runTool(workspace, 'supabase-rate-model.ts', [
+      'install', '--proposal-hash', json(rateProposal).proposalHash,
+    ], runner, supabase);
+    assert.equal(failedRate.status, 1, failedRate.stderr || failedRate.stdout);
+    assert.match(failedRate.stderr, /migration_failed/);
+    const attempt = join(workspace, 'self', 'supabase', 'migration-attempt.json');
+    assert.equal(existsSync(attempt), true);
+    rmSync(`${supabase.log}.fail-push`);
+
+    const datasetProposal = runTool(workspace, 'supabase-dataset-model.ts', [
+      'propose', '--manifest', manifest, '--migration-version', migrationVersion, '--json',
+    ]);
+    assert.equal(datasetProposal.status, 0, datasetProposal.stderr || datasetProposal.stdout);
+    const callsBeforeDataset = readFileSync(supabase.log, 'utf8').trim().split('\n').length;
+    const blockedDataset = runTool(workspace, 'supabase-dataset-model.ts', [
+      'install', '--dataset', dataset,
+      '--proposal-hash', json(datasetProposal).proposalHash, '--json',
+    ], runner, supabase);
+    assert.equal(blockedDataset.status, 4, blockedDataset.stderr || blockedDataset.stdout);
+    assert.equal(json(blockedDataset).dataset, dataset);
+    assert.match(json(blockedDataset).reason, /migration_partial/);
+    const laterCalls = readFileSync(supabase.log, 'utf8').trim().split('\n')
+      .slice(callsBeforeDataset).map((line) => JSON.parse(line));
+    assert.deepEqual(laterCalls.map(({ args }) => args), [['--version']]);
+    assert.equal(existsSync(join(
+      workspace, 'self', 'supabase', 'project', 'supabase', 'migrations',
+      `${migrationVersion}_acme__product_prices.sql`,
+    )), false);
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test('an early binding refusal keeps the supplied dataset envelope', () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'heroes-supabase-dataset-binding-'));
+  try {
+    writeWorkspace(workspace);
+    writeFileSync(join(workspace, 'self', 'supabase', 'binding.json'), '{}\n');
+    const refused = runTool(workspace, 'supabase-dataset-model.ts', [
+      'install', '--dataset', dataset, '--proposal-hash', '0'.repeat(64), '--json',
+    ]);
+    assert.equal(refused.status, 4, refused.stderr || refused.stdout);
+    assert.equal(json(refused).status, 'refused');
+    assert.equal(json(refused).dataset, dataset);
+    assert.match(json(refused).reason, /project_identity_mismatch/);
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }
@@ -551,10 +619,15 @@ test('a failed dataset migration blocks every later dataset in the shared ledger
 test('understanding: install binds one proposal to read-only verification before confirmation', () => {
   const source = readFileSync(resolve(toolsDir, 'supabase-dataset-model.ts'), 'utf8');
   assert.match(source, /writeIsolatedProposal/);
-  assert.match(source, /dataset-migration-attempt\.json/);
+  assert.match(source, /migration-attempt\.json/);
   assert.ok(
     source.indexOf('if (existsSync(attempt))') < source.indexOf('const projectDir = prepareMigrations'),
     'a shared unresolved attempt must stop before another dataset enters the staged ledger',
+  );
+  assert.ok(
+    source.indexOf('writeAttempt(attempt, attemptRecord)')
+      < source.indexOf('const projectDir = prepareMigrations'),
+    'the global marker must exist before persistent canonical-ledger staging starts',
   );
   assert.match(source, /assertDatasetPostgresVerification\(checked\)/);
   assert.match(source, /writeConfirmed\(confirmedPath\(dataset\), binding, proposal, checked\)/);
