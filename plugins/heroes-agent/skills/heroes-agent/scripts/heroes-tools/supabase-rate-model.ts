@@ -1,21 +1,22 @@
 import { createHash } from 'node:crypto';
 import {
-  chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync,
+  existsSync, readFileSync, unlinkSync,
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { flagString, parseArgs, run } from './lib';
 import {
   loadConfirmedRateProfile, parseRateProfile, persistConfirmedRateProfile, type RateProfile,
 } from './rate-profile';
+import {
+  applyPush, assertMigrationHistory, dryRunPush, failure, managementRequest, migrationRows,
+  objectResult, prepareMigrations, requireCli, writeAttempt,
+} from './supabase-dataset-store';
 
 const PROJECT_REF = 'enjephpxfrbccskdljun';
 const TENANT_KEY = 'acme';
 const PROJECT_NAME = 'user-db';
 const PROJECT_REGION = 'eu-west-1';
-const MANAGEMENT_URL = 'https://api.supabase.com';
-const PINNED_CLI_VERSION = '2.117.0';
 const RATE_MODEL_MIGRATION_VERSION = '20260912000100';
 const RATE_MODEL_MIGRATION_FILE = `${RATE_MODEL_MIGRATION_VERSION}_acme_rate_model.sql`;
 const TENANT_CONTEXT_MIGRATION_VERSION = '20260912000200';
@@ -29,6 +30,7 @@ const rateMigrations = [
   RATE_MODEL_MIGRATION_FILE, TENANT_CONTEXT_MIGRATION_FILE, QUERY_CONTEXT_MIGRATION_FILE,
 ].map((file) => ({
   file,
+  version: file.slice(0, 14),
   source: join(pluginSkillRoot, 'assets', 'supabase-rate-model', 'acme', 'migrations', file),
 }));
 
@@ -38,12 +40,6 @@ interface Binding {
   supabaseProjectRef: string;
   supabaseProjectName: string;
   supabaseRegion: string;
-}
-
-interface QueryRequest {
-  action: 'project' | 'query-read-only' | 'query-write';
-  projectRef: string;
-  query?: string;
 }
 
 const METADATA_QUERY = String.raw`
@@ -661,10 +657,6 @@ select jsonb_build_object(
 ) as cleanup;
 `;
 
-function failure(code: string, message: string): Error {
-  return new Error(`[${code}] ${message}`);
-}
-
 function readBinding(): Binding {
   const path = join(process.cwd(), 'self', 'supabase', 'binding.json');
   if (!existsSync(path)) throw failure('project_identity_mismatch', 'Supabase binding is missing.');
@@ -684,155 +676,6 @@ function readBinding(): Binding {
     throw failure('project_identity_mismatch', 'Supabase binding does not match the confirmed ACME project.');
   }
   return binding;
-}
-
-function managementEnvironment(): NodeJS.ProcessEnv {
-  const environment: NodeJS.ProcessEnv = {};
-  for (const key of [
-    'PATH', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA',
-    'TMPDIR', 'TMP', 'TEMP', 'SystemRoot', 'COMSPEC', 'PATHEXT',
-    'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS',
-    'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'no_proxy',
-    'FAKE_QUERY_LOG', 'FAKE_SUPABASE_STATE',
-  ]) {
-    if (process.env[key] !== undefined) environment[key] = process.env[key];
-  }
-  environment.SUPABASE_ACCESS_TOKEN = process.env.SUPABASE_ACCESS_TOKEN;
-  return environment;
-}
-
-function cliPath(): string {
-  return process.env.HEROES_SUPABASE_CLI ?? join(toolsDir, 'node_modules', 'supabase', 'dist', 'supabase.js');
-}
-
-function cliEnvironment(): NodeJS.ProcessEnv {
-  const environment = managementEnvironment();
-  environment.SUPABASE_DB_PASSWORD = process.env.SUPABASE_DB_PASSWORD;
-  environment.FAKE_SUPABASE_LOG = process.env.FAKE_SUPABASE_LOG;
-  return environment;
-}
-
-function callCli(args: string[]): { status: number; stdout: string; stderr: string } {
-  const result = spawnSync(process.execPath, [cliPath(), ...args], {
-    cwd: process.cwd(),
-    env: cliEnvironment(),
-    encoding: 'utf8',
-  });
-  return {
-    status: result.status ?? 1,
-    stdout: result.stdout ?? '',
-    stderr: result.stderr ?? result.error?.message ?? '',
-  };
-}
-
-function requireCli(): void {
-  if (!process.env.SUPABASE_DB_PASSWORD) {
-    throw failure('configuration_missing', 'Supabase database password is missing.');
-  }
-  const result = callCli(['--version']);
-  if (result.status !== 0 || result.stdout.trim() !== PINNED_CLI_VERSION) {
-    throw failure('configuration_missing', `Supabase CLI ${PINNED_CLI_VERSION} is required.`);
-  }
-}
-
-function copyExact(source: string, target: string): void {
-  if (existsSync(target)) {
-    if (readFileSync(target, 'utf8') !== readFileSync(source, 'utf8')) {
-      throw failure('migration_history_mismatch', `Local Supabase migration diverged: ${target}.`);
-    }
-    return;
-  }
-  mkdirSync(dirname(target), { recursive: true });
-  copyFileSync(source, target);
-}
-
-function prepareMigrations(): string {
-  const projectDir = join(process.cwd(), 'self', 'supabase', 'project');
-  copyExact(join(bootstrapProject, 'config.toml'), join(projectDir, 'supabase', 'config.toml'));
-  copyExact(
-    join(bootstrapProject, 'migrations', '20260908000100_heroes_agent_bootstrap.sql'),
-    join(projectDir, 'supabase', 'migrations', '20260908000100_heroes_agent_bootstrap.sql'),
-  );
-  for (const migration of rateMigrations) {
-    copyExact(migration.source, join(projectDir, 'supabase', 'migrations', migration.file));
-  }
-  return projectDir;
-}
-
-function migrationRows(projectDir: string): { local?: string; remote?: string }[] {
-  const result = callCli([
-    '--workdir', projectDir, '--output-format', 'json',
-    'migration', 'list', '--project-ref', PROJECT_REF,
-  ]);
-  if (result.status !== 0) {
-    throw failure('migration_history_mismatch', 'Supabase migration history could not be read.');
-  }
-  try {
-    const value = JSON.parse(result.stdout) as { migrations?: { local?: string; remote?: string }[] };
-    if (!Array.isArray(value.migrations)) throw new Error('invalid migrations');
-    return value.migrations;
-  } catch {
-    throw failure('migration_history_mismatch', 'Supabase migration history returned invalid JSON.');
-  }
-}
-
-function migrationValue(value: string | undefined): string | undefined {
-  const normalized = value?.replace(/`/g, '').trim();
-  return normalized || undefined;
-}
-
-function assertMigrationHistory(rows: { local?: string; remote?: string }[], requireRate: boolean): boolean {
-  for (const row of rows) {
-    const local = migrationValue(row.local);
-    const remote = migrationValue(row.remote);
-    if (remote && !local) throw failure('migration_history_mismatch', 'Remote migration history is not present locally.');
-    if (local && remote && local !== remote) throw failure('migration_history_mismatch', 'Migration history is divergent.');
-  }
-  const hasBootstrap = rows.some((row) => migrationValue(row.local) === '20260908000100' && migrationValue(row.remote) === '20260908000100');
-  if (!hasBootstrap) throw failure('migration_history_mismatch', 'The verified S3 bootstrap migration is missing.');
-  const hasRateModel = rows.some((row) => migrationValue(row.local) === RATE_MODEL_MIGRATION_VERSION
-    && migrationValue(row.remote) === RATE_MODEL_MIGRATION_VERSION);
-  const hasTenantContext = rows.some((row) => migrationValue(row.local) === TENANT_CONTEXT_MIGRATION_VERSION
-    && migrationValue(row.remote) === TENANT_CONTEXT_MIGRATION_VERSION);
-  const hasCorrection = rows.some((row) => migrationValue(row.local) === QUERY_CONTEXT_MIGRATION_VERSION
-    && migrationValue(row.remote) === QUERY_CONTEXT_MIGRATION_VERSION);
-  if (hasTenantContext && !hasRateModel) {
-    throw failure('migration_partial', 'The S4b tenant-context migration lacks its rate-model migration.');
-  }
-  if (hasCorrection && !hasTenantContext) {
-    throw failure('migration_partial', 'The S4b query-context migration lacks its tenant-context migration.');
-  }
-  if (requireRate && !hasCorrection) throw failure('migration_partial', 'The S4b query-context migration did not verify.');
-  return hasRateModel && hasTenantContext && hasCorrection;
-}
-
-function dryRunPush(projectDir: string): void {
-  const result = callCli(['--workdir', projectDir, 'db', 'push', '--project-ref', PROJECT_REF, '--dry-run', '--yes']);
-  if (result.status !== 0) throw failure('migration_failed', 'Supabase migration dry run failed.');
-}
-
-function applyPush(projectDir: string): void {
-  const result = callCli(['--workdir', projectDir, 'db', 'push', '--project-ref', PROJECT_REF, '--yes']);
-  if (result.status !== 0) throw failure('migration_failed', 'Supabase migration failed. Inspect live state before retry.');
-}
-
-function writeAttempt(path: string, proposalHash: string): void {
-  writeFileSync(path, `${JSON.stringify({
-    schemaVersion: '1.0', heroesTenantKey: TENANT_KEY, supabaseProjectRef: PROJECT_REF,
-    migrationVersion: QUERY_CONTEXT_MIGRATION_VERSION, proposalHash, status: 'applying',
-  }, null, 2)}\n`, { mode: 0o600 });
-  chmodSync(path, 0o600);
-}
-
-function objectResult(value: unknown, field: string): Record<string, unknown> {
-  if (!Array.isArray(value) || !value[0] || typeof value[0] !== 'object') {
-    throw failure('verification_failed', `Supabase ${field} result is invalid.`);
-  }
-  const result = (value[0] as Record<string, unknown>)[field];
-  if (!result || typeof result !== 'object' || Array.isArray(result)) {
-    throw failure('verification_failed', `Supabase ${field} result is invalid.`);
-  }
-  return result as Record<string, unknown>;
 }
 
 async function verifyInstalled(): Promise<Record<string, unknown>> {
@@ -863,59 +706,6 @@ async function provePolicies(): Promise<Record<string, unknown>> {
     throw failure('verification_failed', 'Database tenant-isolation proof failed.');
   }
   return proof;
-}
-
-async function managementRequest(request: QueryRequest): Promise<unknown> {
-  const accessToken = process.env.SUPABASE_ACCESS_TOKEN;
-  if (!accessToken) throw failure('configuration_missing', 'Supabase access token is missing.');
-  const runner = process.env.HEROES_SUPABASE_QUERY_RUNNER;
-  if (runner) {
-    const result = spawnSync(process.execPath, [runner], {
-      input: JSON.stringify(request),
-      encoding: 'utf8',
-      env: managementEnvironment(),
-    });
-    if (result.status !== 0) throw failure('project_unreachable', 'Supabase metadata query failed.');
-    try {
-      return JSON.parse(result.stdout);
-    } catch {
-      throw failure('project_unreachable', 'Supabase metadata query returned invalid JSON.');
-    }
-  }
-
-  const readOnly = request.action === 'query-read-only';
-  const endpoint = request.action === 'project'
-    ? `/v1/projects/${request.projectRef}`
-    : `/v1/projects/${request.projectRef}/database/query${readOnly ? '/read-only' : ''}`;
-  const response = await fetch(`${MANAGEMENT_URL}${endpoint}`, {
-    method: request.action === 'project' ? 'GET' : 'POST',
-    headers: {
-      authorization: `Bearer ${accessToken}`,
-      ...(request.action === 'project' ? {} : { 'content-type': 'application/json' }),
-    },
-    ...(request.action === 'project' ? {} : { body: JSON.stringify({ query: request.query }) }),
-  });
-  const responseText = await response.text();
-  if (!response.ok) {
-    let detail = '';
-    try {
-      const body = JSON.parse(responseText) as Record<string, unknown>;
-      const candidate = [body.message, body.error, body.hint, body.details]
-        .find((value) => typeof value === 'string' && value.trim());
-      if (typeof candidate === 'string') detail = ` ${candidate.slice(0, 500)}`;
-    } catch {
-      // Keep non-JSON upstream bodies private.
-    }
-    for (const secret of [process.env.SUPABASE_ACCESS_TOKEN, process.env.SUPABASE_DB_PASSWORD]) {
-      if (secret) detail = detail.split(secret).join('[redacted]');
-    }
-    throw failure('project_unreachable', `Supabase metadata query failed with status ${response.status}.${detail}`);
-  }
-  try {
-    return JSON.parse(responseText);
-  } catch {
-    throw failure('project_unreachable', 'Supabase metadata query returned invalid JSON.');
-  }
 }
 
 function buildProfile(status: RateProfile['status']): RateProfile {
@@ -1025,21 +815,48 @@ run(async () => {
     if (flagString(flags, 'proposal-hash') !== expectedHash) {
       throw failure('proposal_mismatch', 'Proposal hash does not match the confirmed schema proposal.');
     }
-    requireCli();
-    const projectDir = prepareMigrations();
+    requireCli(toolsDir);
+    const projectDir = prepareMigrations({
+      workspace: process.cwd(), bootstrapProject, migrations: rateMigrations,
+    });
     const attemptPath = join(process.cwd(), 'self', 'supabase', 'migration-attempt.json');
     if (existsSync(attemptPath)) {
       throw failure('migration_partial', 'A prior migration attempt requires operator inspection.');
     }
-    const before = migrationRows(projectDir);
-    const alreadyApplied = assertMigrationHistory(before, false);
-    dryRunPush(projectDir);
+    const requiredMigrations = [
+      { version: RATE_MODEL_MIGRATION_VERSION },
+      {
+        version: TENANT_CONTEXT_MIGRATION_VERSION,
+        missingDependencyMessage: 'The S4b tenant-context migration lacks its rate-model migration.',
+      },
+      {
+        version: QUERY_CONTEXT_MIGRATION_VERSION,
+        missingDependencyMessage: 'The S4b query-context migration lacks its tenant-context migration.',
+      },
+    ];
+    const historyOptions = {
+      requiredMigrations,
+      missingRequiredMessage: 'The S4b query-context migration did not verify.',
+    };
+    const before = migrationRows(toolsDir, projectDir, PROJECT_REF);
+    const alreadyApplied = assertMigrationHistory({ rows: before, requireAll: false, ...historyOptions });
+    dryRunPush(toolsDir, projectDir, PROJECT_REF);
     if (!alreadyApplied) {
-      writeAttempt(attemptPath, expectedHash);
-      applyPush(projectDir);
-      assertMigrationHistory(migrationRows(projectDir), true);
+      writeAttempt(attemptPath, {
+        schemaVersion: '1.0', heroesTenantKey: TENANT_KEY, supabaseProjectRef: PROJECT_REF,
+        migrationVersion: QUERY_CONTEXT_MIGRATION_VERSION, proposalHash: expectedHash, status: 'applying',
+      });
+      applyPush(toolsDir, projectDir, PROJECT_REF);
+      assertMigrationHistory({
+        rows: migrationRows(toolsDir, projectDir, PROJECT_REF), requireAll: true, ...historyOptions,
+      });
     }
-    if (!existsSync(attemptPath)) writeAttempt(attemptPath, expectedHash);
+    if (!existsSync(attemptPath)) {
+      writeAttempt(attemptPath, {
+        schemaVersion: '1.0', heroesTenantKey: TENANT_KEY, supabaseProjectRef: PROJECT_REF,
+        migrationVersion: QUERY_CONTEXT_MIGRATION_VERSION, proposalHash: expectedHash, status: 'applying',
+      });
+    }
     const verification = await verifyInstalled();
     const proof = await provePolicies();
     persistConfirmedRateProfile(process.cwd(), buildProfile('confirmed'));
