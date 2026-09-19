@@ -38,6 +38,16 @@ class UsageError extends Error {}
 const toolsDir = dirname(fileURLToPath(import.meta.url));
 const pluginSkillRoot = resolve(toolsDir, '..', '..');
 const bootstrapProject = join(pluginSkillRoot, 'assets', 'supabase-project', 'supabase');
+const rateMigrationFiles = [
+  '20260912000100_acme_rate_model.sql',
+  '20260912000200_acme_rate_context_key.sql',
+  '20260912000300_acme_rate_query_context.sql',
+];
+const rateMigrations: SupabaseMigrationFile[] = rateMigrationFiles.map((file) => ({
+  file,
+  version: file.slice(0, 14),
+  source: join(pluginSkillRoot, 'assets', 'supabase-rate-model', 'acme', 'migrations', file),
+}));
 
 function requireFlag(flags: Record<string, string | boolean>, name: string): string {
   const value = flagString(flags, name);
@@ -222,6 +232,27 @@ function migrationFiles(proposal: StoredProposal): SupabaseMigrationFile[] {
   }];
 }
 
+function assertRateModelInstalled(binding: Binding): void {
+  const historyWorkspace = mkdtempSync(join(tmpdir(), 'heroes-rate-history-'));
+  try {
+    const historyProject = prepareMigrations({
+      workspace: historyWorkspace,
+      bootstrapProject,
+      migrations: rateMigrations,
+    });
+    const rows = migrationRows(toolsDir, historyProject, binding.supabaseProjectRef);
+    const remote = new Set(rows.map(({ remote: value }) => value?.replace(/`/g, '').trim()));
+    if (rateMigrations.some(({ version }) => !remote.has(version))) {
+      throw failure(
+        'migration_history_mismatch',
+        'Install the rate model first. All three rate migrations must exist on the server.',
+      );
+    }
+  } finally {
+    rmSync(historyWorkspace, { recursive: true, force: true });
+  }
+}
+
 function emit(result: Result): void {
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }
@@ -356,6 +387,7 @@ run(async () => {
     if (existsSync(attempt)) {
       throw failure('migration_partial', 'A prior migration attempt requires operator inspection.');
     }
+    assertRateModelInstalled(binding);
     const attemptRecord = {
       schemaVersion: '1.0',
       dataset,
@@ -369,7 +401,7 @@ run(async () => {
     const projectDir = prepareMigrations({
       workspace: process.cwd(),
       bootstrapProject,
-      migrations: migrationFiles(proposal),
+      migrations: [...rateMigrations, ...migrationFiles(proposal)],
       projectDir: installProjectDir(),
     });
     const historyOptions = {

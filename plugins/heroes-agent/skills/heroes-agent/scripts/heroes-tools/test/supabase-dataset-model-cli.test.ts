@@ -15,6 +15,9 @@ const launcher = join(pluginRoot, 'scripts', 'run-tool.mjs');
 const manifest = join(toolsDir, 'test', 'fixtures', 'dataset-cli', 'product-prices.manifest.json');
 const dataset = 'acme.product_prices';
 const migrationVersion = '20260918190000';
+const rateMigrationVersions = [
+  '20260912000100', '20260912000200', '20260912000300',
+];
 // Captured from the exact stdout bytes at 9b81fb4eb92d1225de294251c368b8eba163b790.
 const RATE_PROPOSE_GOLDEN_SHA256 = '8fa5bfbddd6059783c14592c01aad9a4b04e4e3d438e590be019c89460507f6a';
 
@@ -191,32 +194,45 @@ function inspectStagedMigration() {
   }
   return { migrationDir, files, versions };
 }
+function remoteVersions() {
+  return existsSync(process.env.FAKE_SUPABASE_STATE)
+    ? JSON.parse(readFileSync(process.env.FAKE_SUPABASE_STATE, 'utf8'))
+    : ['20260908000100'];
+}
+function assertPinnedOrder(versions) {
+  const remote = remoteVersions();
+  const latestRemote = [...remote].sort().at(-1);
+  if (versions.some((version) => !remote.includes(version) && version < latestRemote)) {
+    process.stderr.write('Found local migration files before the last remote migration');
+    process.exit(8);
+  }
+}
 if (args.includes('--version')) {
   process.stdout.write('2.117.0\\n');
 } else if (args.includes('migration') && args.includes('list')) {
   const { versions } = inspectStagedMigration();
-  const remote = existsSync(process.env.FAKE_SUPABASE_STATE)
-    ? JSON.parse(readFileSync(process.env.FAKE_SUPABASE_STATE, 'utf8'))
-    : ['20260908000100'];
+  const remote = remoteVersions();
   const all = [...new Set([...versions, ...remote])].sort();
   process.stdout.write(JSON.stringify({ migrations: all.map((version) => ({
     local: versions.includes(version) ? version : '',
     remote: remote.includes(version) ? version : '',
   })) }));
 } else if (args.includes('db') && args.includes('push') && args.includes('--dry-run')) {
-  inspectStagedMigration();
+  const { versions } = inspectStagedMigration();
   if (existsSync(process.env.FAKE_SUPABASE_LOG + '.fail-dry-run')) {
     process.stderr.write('simulated migration dry-run failure');
     process.exit(8);
   }
+  assertPinnedOrder(versions);
   process.stdout.write(existsSync(process.env.FAKE_SUPABASE_STATE)
     ? 'Linked project is up to date.' : 'Would apply dataset model.');
 } else if (args.includes('db') && args.includes('push')) {
+  const { versions } = inspectStagedMigration();
+  assertPinnedOrder(versions);
   if (existsSync(process.env.FAKE_SUPABASE_LOG + '.fail-push')) {
     process.stderr.write('simulated migration failure');
     process.exit(8);
   }
-  const { versions } = inspectStagedMigration();
   writeFileSync(process.env.FAKE_SUPABASE_STATE, JSON.stringify(versions));
   process.stdout.write('Finished supabase db push.');
 } else {
@@ -255,6 +271,10 @@ function runTool(
 
 function json(result: ReturnType<typeof runTool>): Record<string, any> {
   return JSON.parse(result.stdout) as Record<string, any>;
+}
+
+function writeRemoteRateState(supabase: { state: string }): void {
+  writeFileSync(supabase.state, JSON.stringify(['20260908000100', ...rateMigrationVersions]));
 }
 
 test('the generic dataset installer satisfies the rate installer contract', () => {
@@ -303,6 +323,7 @@ test('the generic dataset installer satisfies the rate installer contract', () =
     assert.match(json(wrongHash).reason, /proposal_mismatch/);
     assert.equal(existsSync(supabase.log), false);
 
+    writeRemoteRateState(supabase);
     const installed = runTool(workspace, 'supabase-dataset-model.ts', [
       'install', '--dataset', dataset, '--proposal-hash', proposalHash, '--json',
     ], runner, supabase);
@@ -375,6 +396,39 @@ test('the generic dataset installer satisfies the rate installer contract', () =
   }
 });
 
+test('a generic install refuses an empty project before staging or push', () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'heroes-supabase-dataset-rate-required-'));
+  try {
+    writeWorkspace(workspace);
+    const runner = writeQueryRunner(workspace);
+    const supabase = writeFakeSupabase(workspace);
+    const proposed = runTool(workspace, 'supabase-dataset-model.ts', [
+      'propose', '--manifest', manifest, '--migration-version', migrationVersion, '--json',
+    ]);
+    assert.equal(proposed.status, 0, proposed.stderr || proposed.stdout);
+
+    const refused = runTool(workspace, 'supabase-dataset-model.ts', [
+      'install', '--dataset', dataset, '--proposal-hash', json(proposed).proposalHash, '--json',
+    ], runner, supabase);
+    assert.equal(refused.status, 4, refused.stderr || refused.stdout);
+    assert.equal(json(refused).status, 'refused');
+    assert.equal(json(refused).dataset, dataset);
+    assert.match(json(refused).reason, /Install the rate model first/);
+    assert.equal(existsSync(join(
+      workspace, 'self', 'supabase', 'migration-attempt.json',
+    )), false);
+    assert.equal(existsSync(join(
+      workspace, 'self', 'supabase', 'project', 'supabase', 'migrations',
+      `${migrationVersion}_acme__product_prices.sql`,
+    )), false);
+    const cliCalls = readFileSync(supabase.log, 'utf8').trim().split('\n')
+      .map((line) => JSON.parse(line));
+    assert.equal(cliCalls.some(({ args }) => args.includes('push')), false);
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
 test('catalog verification rejects policy, role, column, and function access drift', () => {
   const cases = [
     { marker: '.extra-policy', field: 'tenantPolicy' },
@@ -397,7 +451,9 @@ test('catalog verification rejects policy, role, column, and function access dri
       ]);
       assert.equal(proposed.status, 0, proposed.stderr || proposed.stdout);
       const proposalHash = json(proposed).proposalHash as string;
-      writeFileSync(supabase.state, JSON.stringify(['20260908000100', migrationVersion]));
+      writeFileSync(supabase.state, JSON.stringify([
+        '20260908000100', ...rateMigrationVersions, migrationVersion,
+      ]));
       writeFileSync(`${runner.log}${marker}`, 'drift');
 
       const installed = runTool(workspace, 'supabase-dataset-model.ts', [
@@ -418,16 +474,12 @@ test('catalog verification rejects policy, role, column, and function access dri
 
 test('a second dataset keeps the full local and remote migration ledger', () => {
   const workspace = mkdtempSync(join(tmpdir(), 'heroes-supabase-dataset-ledger-'));
-  const priorVersion = '20260912000100';
   const secondVersion = '20260918190100';
   try {
     writeWorkspace(workspace);
-    const projectMigrations = join(workspace, 'self', 'supabase', 'project', 'supabase', 'migrations');
-    mkdirSync(projectMigrations, { recursive: true });
-    writeFileSync(join(projectMigrations, `${priorVersion}_existing.sql`), 'select 1;\n');
     const runner = writeQueryRunner(workspace);
     const supabase = writeFakeSupabase(workspace);
-    writeFileSync(supabase.state, JSON.stringify(['20260908000100', priorVersion]));
+    writeRemoteRateState(supabase);
 
     const firstProposal = runTool(workspace, 'supabase-dataset-model.ts', [
       'propose', '--manifest', manifest, '--migration-version', migrationVersion, '--json',
@@ -456,25 +508,35 @@ test('a second dataset keeps the full local and remote migration ledger', () => 
     )).sort();
     assert.deepEqual(staged, [
       '20260908000100_heroes_agent_bootstrap.sql',
-      `${priorVersion}_existing.sql`,
+      '20260912000100_acme_rate_model.sql',
+      '20260912000200_acme_rate_context_key.sql',
+      '20260912000300_acme_rate_query_context.sql',
       `${migrationVersion}_acme__product_prices.sql`,
       `${secondVersion}_acme__product_costs.sql`,
     ]);
     assert.deepEqual(JSON.parse(readFileSync(supabase.state, 'utf8')), [
-      '20260908000100', priorVersion, migrationVersion, secondVersion,
+      '20260908000100', ...rateMigrationVersions, migrationVersion, secondVersion,
     ]);
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }
 });
 
-test('a generic install leaves one canonical ledger for a later rate install', () => {
-  const workspace = mkdtempSync(join(tmpdir(), 'heroes-supabase-rate-after-dataset-'));
+test('rate install then generic install then rate reinstall share one canonical ledger', () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'heroes-supabase-rate-before-dataset-'));
   try {
     writeWorkspace(workspace);
     writeRateBinding(workspace);
     const runner = writeQueryRunner(workspace);
     const supabase = writeFakeSupabase(workspace);
+    const rateProposal = runTool(workspace, 'supabase-rate-model.ts', ['propose']);
+    assert.equal(rateProposal.status, 0, rateProposal.stderr || rateProposal.stdout);
+    const firstRateInstall = runTool(workspace, 'supabase-rate-model.ts', [
+      'install', '--proposal-hash', json(rateProposal).proposalHash,
+    ], runner, supabase);
+    assert.equal(firstRateInstall.status, 0, firstRateInstall.stderr || firstRateInstall.stdout);
+    assert.equal(json(firstRateInstall).status, 'installed-and-verified');
+
     const datasetProposal = runTool(workspace, 'supabase-dataset-model.ts', [
       'propose', '--manifest', manifest, '--migration-version', migrationVersion, '--json',
     ]);
@@ -485,13 +547,12 @@ test('a generic install leaves one canonical ledger for a later rate install', (
     ], runner, supabase);
     assert.equal(datasetInstall.status, 0, datasetInstall.stderr || datasetInstall.stdout);
 
-    const rateProposal = runTool(workspace, 'supabase-rate-model.ts', ['propose']);
-    assert.equal(rateProposal.status, 0, rateProposal.stderr || rateProposal.stdout);
-    const rateInstall = runTool(workspace, 'supabase-rate-model.ts', [
+    const secondRateInstall = runTool(workspace, 'supabase-rate-model.ts', [
       'install', '--proposal-hash', json(rateProposal).proposalHash,
     ], runner, supabase);
-    assert.equal(rateInstall.status, 0, rateInstall.stderr || rateInstall.stdout);
-    assert.equal(json(rateInstall).status, 'installed-and-verified');
+    assert.equal(secondRateInstall.status, 0, secondRateInstall.stderr || secondRateInstall.stdout);
+    assert.equal(json(secondRateInstall).status, 'installed-and-verified');
+    assert.equal(json(secondRateInstall).migrationApplied, false);
 
     const staged = readdirSync(join(
       workspace, 'self', 'supabase', 'project', 'supabase', 'migrations',
@@ -503,6 +564,11 @@ test('a generic install leaves one canonical ledger for a later rate install', (
       '20260912000300_acme_rate_query_context.sql',
       `${migrationVersion}_acme__product_prices.sql`,
     ]);
+    const cliCalls = readFileSync(supabase.log, 'utf8').trim().split('\n')
+      .map((line) => JSON.parse(line));
+    assert.equal(cliCalls.filter(({ args }) => (
+      args.includes('push') && !args.includes('--dry-run')
+    )).length, 2);
   } finally {
     rmSync(workspace, { recursive: true, force: true });
   }
@@ -515,6 +581,7 @@ test('a failed dataset dry run blocks every later dataset in the shared ledger',
     writeWorkspace(workspace);
     const runner = writeQueryRunner(workspace);
     const supabase = writeFakeSupabase(workspace);
+    writeRemoteRateState(supabase);
     const firstProposal = runTool(workspace, 'supabase-dataset-model.ts', [
       'propose', '--manifest', manifest, '--migration-version', migrationVersion, '--json',
     ]);
@@ -527,7 +594,9 @@ test('a failed dataset dry run blocks every later dataset in the shared ledger',
     assert.match(json(failedFirst).reason, /migration_failed/);
     const attempt = join(workspace, 'self', 'supabase', 'migration-attempt.json');
     assert.equal(existsSync(attempt), true);
-    assert.equal(existsSync(supabase.state), false);
+    assert.deepEqual(JSON.parse(readFileSync(supabase.state, 'utf8')), [
+      '20260908000100', ...rateMigrationVersions,
+    ]);
     rmSync(`${supabase.log}.fail-dry-run`);
 
     const secondDataset = 'acme.product_costs';
@@ -599,6 +668,50 @@ test('a failed rate migration blocks a later generic install through the global 
   }
 });
 
+test('a failed rate dry run blocks a later generic install before push', () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'heroes-supabase-rate-dry-run-'));
+  try {
+    writeWorkspace(workspace);
+    writeRateBinding(workspace);
+    const runner = writeQueryRunner(workspace);
+    const supabase = writeFakeSupabase(workspace);
+    const rateProposal = runTool(workspace, 'supabase-rate-model.ts', ['propose']);
+    assert.equal(rateProposal.status, 0, rateProposal.stderr || rateProposal.stdout);
+    writeFileSync(`${supabase.log}.fail-dry-run`, 'fail');
+    const failedRate = runTool(workspace, 'supabase-rate-model.ts', [
+      'install', '--proposal-hash', json(rateProposal).proposalHash,
+    ], runner, supabase);
+    assert.equal(failedRate.status, 1, failedRate.stderr || failedRate.stdout);
+    assert.match(failedRate.stderr, /migration_failed/);
+    assert.equal(existsSync(join(
+      workspace, 'self', 'supabase', 'migration-attempt.json',
+    )), false);
+    rmSync(`${supabase.log}.fail-dry-run`);
+
+    const datasetProposal = runTool(workspace, 'supabase-dataset-model.ts', [
+      'propose', '--manifest', manifest, '--migration-version', migrationVersion, '--json',
+    ]);
+    assert.equal(datasetProposal.status, 0, datasetProposal.stderr || datasetProposal.stdout);
+    const callsBeforeDataset = readFileSync(supabase.log, 'utf8').trim().split('\n').length;
+    const refused = runTool(workspace, 'supabase-dataset-model.ts', [
+      'install', '--dataset', dataset,
+      '--proposal-hash', json(datasetProposal).proposalHash, '--json',
+    ], runner, supabase);
+    assert.equal(refused.status, 4, refused.stderr || refused.stdout);
+    assert.equal(json(refused).dataset, dataset);
+    assert.match(json(refused).reason, /Install the rate model first/);
+    const laterCalls = readFileSync(supabase.log, 'utf8').trim().split('\n')
+      .slice(callsBeforeDataset).map((line) => JSON.parse(line));
+    assert.equal(laterCalls.some(({ args }) => args.includes('push')), false);
+    assert.equal(existsSync(join(
+      workspace, 'self', 'supabase', 'project', 'supabase', 'migrations',
+      `${migrationVersion}_acme__product_prices.sql`,
+    )), false);
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
 test('an early binding refusal keeps the supplied dataset envelope', () => {
   const workspace = mkdtempSync(join(tmpdir(), 'heroes-supabase-dataset-binding-'));
   try {
@@ -620,6 +733,11 @@ test('understanding: install binds one proposal to read-only verification before
   const source = readFileSync(resolve(toolsDir, 'supabase-dataset-model.ts'), 'utf8');
   assert.match(source, /writeIsolatedProposal/);
   assert.match(source, /migration-attempt\.json/);
+  assert.ok(
+    source.indexOf('assertRateModelInstalled(binding)')
+      < source.indexOf('writeAttempt(attempt, attemptRecord)'),
+    'remote rate history must pass before the global attempt marker is written',
+  );
   assert.ok(
     source.indexOf('if (existsSync(attempt))') < source.indexOf('const projectDir = prepareMigrations'),
     'a shared unresolved attempt must stop before another dataset enters the staged ledger',
