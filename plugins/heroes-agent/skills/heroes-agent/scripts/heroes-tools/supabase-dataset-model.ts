@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
 import {
-  chmodSync, existsSync, readFileSync, unlinkSync, writeFileSync,
+  chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync,
 } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { canonicalJson } from './dataset-kernel';
 import { parseDatasetManifest, type DatasetManifest } from './dataset-manifest';
@@ -116,8 +117,8 @@ function confirmedPath(dataset: string): string {
   return join(process.cwd(), 'self', 'supabase', 'datasets', dataset, 'confirmed.json');
 }
 
-function attemptPath(dataset: string): string {
-  return join(process.cwd(), 'self', 'supabase', 'datasets', dataset, 'install-attempt.json');
+function attemptPath(): string {
+  return join(process.cwd(), 'self', 'supabase', 'dataset-migration-attempt.json');
 }
 
 function installProjectDir(): string {
@@ -125,9 +126,13 @@ function installProjectDir(): string {
 }
 
 function proposalMigrationVersion(proposal: DatasetProposal): string {
-  const versions = new Set(proposal.files.map(({ path }) => (
-    /^self\/supabase\/project\/supabase\/migrations\/(\d{14})_[^/]+\.sql$/.exec(path)?.[1]
-  )));
+  const datasetDirectory = `self/supabase/datasets/${proposal.manifest.dataset}/migrations/`;
+  const legacyDirectory = 'self/supabase/project/supabase/migrations/';
+  const versions = new Set(proposal.files.map(({ path }) => {
+    const directory = path.startsWith(datasetDirectory) ? datasetDirectory : legacyDirectory;
+    if (!path.startsWith(directory)) return undefined;
+    return /^(\d{14})_[^/]+\.sql$/.exec(path.slice(directory.length))?.[1];
+  }));
   if (versions.size !== 1 || versions.has(undefined)) {
     throw failure('proposal_invalid', 'Dataset proposal does not contain one 14-digit migration version.');
   }
@@ -141,6 +146,34 @@ function proposalHash(proposal: DatasetProposal): string {
   };
   if (proposal.backup) hashInput.backup = proposal.backup;
   return createHash('sha256').update(canonicalJson(hashInput)).digest('hex');
+}
+
+function writeIsolatedProposal(options: {
+  manifest: unknown;
+  tenantKey: string;
+  migrationVersion: string;
+}): DatasetProposal {
+  const temporaryWorkspace = mkdtempSync(join(tmpdir(), 'heroes-dataset-proposal-'));
+  try {
+    const draft = writeDatasetProposal({ workspace: temporaryWorkspace, ...options });
+    const files = draft.files.map((file) => {
+      const path = `self/supabase/datasets/${draft.manifest.dataset}/migrations/${basename(file.path)}`;
+      const target = join(process.cwd(), path);
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, readFileSync(join(temporaryWorkspace, file.path)), { mode: 0o600 });
+      chmodSync(target, 0o600);
+      return { ...file, path };
+    });
+    const proposal: DatasetProposal = { ...draft, files, hash: '' };
+    proposal.hash = proposalHash(proposal);
+    writeFileSync(proposalPath(proposal.manifest.dataset), `${JSON.stringify(proposal, null, 2)}\n`, {
+      mode: 0o600,
+    });
+    chmodSync(proposalPath(proposal.manifest.dataset), 0o600);
+    return proposal;
+  } finally {
+    rmSync(temporaryWorkspace, { recursive: true, force: true });
+  }
 }
 
 function loadProposal(dataset: string): StoredProposal {
@@ -269,8 +302,7 @@ run(async () => {
       if (!/^\d{14}$/.test(migrationVersion)) {
         throw new UsageError('--migration-version must contain exactly 14 digits');
       }
-      const proposal = writeDatasetProposal({
-        workspace: process.cwd(),
+      const proposal = writeIsolatedProposal({
         manifest,
         tenantKey: binding.heroesTenantKey,
         migrationVersion,
@@ -286,10 +318,10 @@ run(async () => {
     }
 
     const dataset = requireFlag(flags, 'dataset');
+    resultDataset = dataset;
     if (!/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/.test(dataset)) {
       throw new UsageError(`Invalid dataset key: ${dataset}`);
     }
-    resultDataset = dataset;
     const proposal = loadProposal(dataset);
 
     if (action === 'confirm') {
@@ -321,6 +353,10 @@ run(async () => {
       throw failure('proposal_mismatch', 'Proposal hash does not match the current dataset proposal.');
     }
     requireCli(toolsDir);
+    const attempt = attemptPath();
+    if (existsSync(attempt)) {
+      throw failure('migration_partial', 'A prior dataset migration attempt requires operator inspection.');
+    }
     const projectDir = prepareMigrations({
       workspace: process.cwd(),
       bootstrapProject,
@@ -328,10 +364,6 @@ run(async () => {
       projectDir: installProjectDir(),
       ledgerProject: join(process.cwd(), 'self', 'supabase', 'project'),
     });
-    const attempt = attemptPath(dataset);
-    if (existsSync(attempt)) {
-      throw failure('migration_partial', 'A prior dataset migration attempt requires operator inspection.');
-    }
     const historyOptions = {
       requiredMigrations: [{ version: proposal.migrationVersion }],
       missingRequiredMessage: 'The generated dataset migration did not verify.',
