@@ -13,6 +13,10 @@ export interface PostgresHarness {
   stop(): Promise<void>;
 }
 
+interface PostgresHarnessOptions {
+  postgresFlags?: string[];
+}
+
 async function freePort(): Promise<number> {
   const server = createServer();
   await new Promise<void>((resolve, reject) => {
@@ -39,35 +43,42 @@ export async function isTcpPortOpen(port: number): Promise<boolean> {
 }
 
 /** Start one isolated PostgreSQL 17 cluster and create the plain-PostgreSQL Supabase roles. */
-export async function startPostgresHarness(): Promise<PostgresHarness> {
+export async function startPostgresHarness(options: PostgresHarnessOptions = {}): Promise<PostgresHarness> {
   const databaseDir = await mkdtemp(join(tmpdir(), 'heroes-postgres-'));
   const port = await freePort();
+  let startupOutput = '';
   const postgres = new EmbeddedPostgres({
     databaseDir,
     port,
     user: 'heroes_postgres_admin',
     password: 'heroes_postgres_admin',
     persistent: true,
-    onLog: () => {},
+    ...(options.postgresFlags ? { postgresFlags: options.postgresFlags } : {}),
+    onLog: (message) => {
+      startupOutput += message;
+    },
     onError: () => {},
   });
   let adminClient: PostgresClient | undefined;
   let client: PostgresClient | undefined;
   let stopped = false;
+  let started = false;
 
   const stop = async (): Promise<void> => {
     if (stopped) return;
     stopped = true;
     if (client) await client.end().catch(() => {});
     if (adminClient) await adminClient.end().catch(() => {});
-    await postgres.stop().catch(() => {});
+    if (started) await postgres.stop().catch(() => {});
     await rm(databaseDir, { recursive: true, force: true });
     if (await isTcpPortOpen(port)) throw new Error(`PostgreSQL test process still listens on port ${port}.`);
   };
 
   try {
     await postgres.initialise();
+    startupOutput = '';
     await postgres.start();
+    started = true;
     adminClient = postgres.getPgClient() as unknown as PostgresClient;
     await adminClient.connect();
     await adminClient.query(`
@@ -99,7 +110,14 @@ export async function startPostgresHarness(): Promise<PostgresHarness> {
     await client.connect();
     return { adminClient, client, databaseDir, port, stop };
   } catch (error) {
+    if (!started) {
+      // The pinned package keeps the closed child and waits for another exit during process shutdown.
+      (postgres as unknown as { process?: unknown }).process = undefined;
+    }
     await stop();
+    if (!started && startupOutput.trim()) {
+      throw new Error(`PostgreSQL failed to start:\n${startupOutput.trim()}`, { cause: error });
+    }
     throw error;
   }
 }

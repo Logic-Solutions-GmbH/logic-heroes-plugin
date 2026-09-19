@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,6 +54,22 @@ const rows = [
 function sqlJson(value: unknown): string {
   return `'${JSON.stringify(value).replaceAll("'", "''")}'::jsonb`;
 }
+
+test('reports a PostgreSQL start failure and removes its data directory', { timeout: 30_000 }, async () => {
+  const databaseDirectories = (): string[] => readdirSync(tmpdir())
+    .filter((name) => name.startsWith('heroes-postgres-'))
+    .sort();
+  const before = databaseDirectories();
+
+  await assert.rejects(
+    startPostgresHarness({ postgresFlags: ['--heroes-force-start-failure'] }),
+    (error: any) => error instanceof Error
+      && error.message.includes('PostgreSQL failed to start:')
+      && error.message.includes('--heroes-force-start-failure'),
+  );
+
+  assert.deepEqual(databaseDirectories(), before);
+});
 
 test('executes generated dataset DDL on isolated PostgreSQL 17', async (t) => {
   const workspace = mkdtempSync(join(tmpdir(), 'heroes-dataset-postgres-proof-'));
@@ -138,6 +154,11 @@ test('executes generated dataset DDL on isolated PostgreSQL 17', async (t) => {
     const count = await adminSeam.runQuery(`SELECT count(*)::int AS count FROM heroes_agent_datasets."${table}"`);
     assert.equal(count[0]?.count, 3);
     await adminSeam.runQuery('RESET ROLE');
+
+    const ownerRows = await seam.runQuery(
+      `SELECT count(*)::int AS count FROM heroes_agent_datasets."${table}"`,
+    );
+    assert.equal(ownerRows[0]?.count, 0);
 
     await adminSeam.runQuery(`
       CREATE ROLE heroes_agent_other_probe NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
