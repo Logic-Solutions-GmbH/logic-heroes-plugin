@@ -280,11 +280,15 @@ select jsonb_build_object(
     from pg_catalog.pg_proc procedure
     join pg_catalog.pg_namespace procedure_namespace
       on procedure_namespace.oid = procedure.pronamespace
+    join pg_catalog.pg_class target_relation
+      on target_relation.oid = pg_catalog.to_regclass(${literal(target)})
     where procedure_namespace.nspname = 'heroes_agent_datasets'
       and procedure.proname in (${literal(ingest)}, ${literal(query)})
       and (
-        (procedure.proname = ${literal(ingest)} and procedure.prorettype = 'bigint'::regtype)
-        or (procedure.proname = ${literal(query)} and procedure.prorettype = pg_catalog.to_regclass(${literal(target)}))
+        (procedure.proname = ${literal(ingest)} and not procedure.proretset
+          and procedure.prorettype = 'bigint'::regtype)
+        or (procedure.proname = ${literal(query)} and procedure.proretset
+          and procedure.prorettype = target_relation.reltype)
       )
   )
 ) as verification;

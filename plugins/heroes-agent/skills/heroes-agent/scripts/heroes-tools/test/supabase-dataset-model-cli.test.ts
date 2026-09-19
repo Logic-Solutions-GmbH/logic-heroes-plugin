@@ -103,7 +103,15 @@ if (request.action === 'project') {
       || !request.query.includes("= '(tenant_key = ''acme''::text)'")
       || request.query.split('policy.polname').length - 1 !== 1
       || request.query.split('access_row.grantee not in').length - 1 !== 3
-      || request.query.split('access_row.is_grantable').length - 1 !== 3) {
+      || request.query.split('access_row.is_grantable').length - 1 !== 3
+      || !request.query.includes(
+        "procedure.proname = 'ingest_" + table + "' and not procedure.proretset",
+      )
+      || !request.query.includes(
+        "procedure.proname = 'query_" + table + "' and procedure.proretset",
+      )
+      || !request.query.includes('procedure.prorettype = target_relation.reltype')
+      || request.query.includes('procedure.prorettype = pg_catalog.to_regclass')) {
     process.stderr.write('dataset verification query does not require exact policy and ACL state');
     process.exit(8);
   }
