@@ -33,15 +33,15 @@ const JSON_TYPES: Record<DatasetField['type'], string> = {
   json: 'object',
 };
 
-function identifier(value: string): string {
+export function identifier(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
 }
 
-function literal(value: string): string {
+export function literal(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
-function derivedIdentifier(...parts: string[]): string {
+export function derivedIdentifier(...parts: string[]): string {
   const name = parts.join('_');
   if (Buffer.byteLength(name, 'utf8') <= 63) return name;
   const suffix = `_${createHash('sha256').update(name).digest('hex').slice(0, 12)}`;
@@ -64,7 +64,7 @@ function tenantRoleName(tenantKey: string): string {
   return role;
 }
 
-function tableName(dataset: string): string {
+export function tableName(dataset: string): string {
   const name = dataset.replaceAll('.', '__');
   if (Buffer.byteLength(name, 'utf8') > 63) {
     throw new Error(`Dataset table name exceeds 63 characters: ${name}`);
@@ -161,6 +161,48 @@ function filterSql(manifest: DatasetManifest): string[] {
   });
 }
 
+function valuesEqualSql(field: DatasetField, left: string, right: string): string {
+  if (field.type === 'text') {
+    return `(((${left} IS NULL OR ${left} = '') AND (${right} IS NULL OR ${right} = ''))`
+      + ` OR ${left} IS NOT DISTINCT FROM ${right})`;
+  }
+  if (field.type === 'timestamp') {
+    return `((${left})::timestamptz IS NOT DISTINCT FROM (${right})::timestamptz)`;
+  }
+  if (field.type === 'integer' || field.type === 'decimal') {
+    return `((${left})::numeric IS NOT DISTINCT FROM (${right})::numeric)`;
+  }
+  if (field.type === 'json') {
+    return `((${left})::jsonb IS NOT DISTINCT FROM (${right})::jsonb)`;
+  }
+  return `(${left} IS NOT DISTINCT FROM ${right})`;
+}
+
+function firstChangedFieldSql(manifest: DatasetManifest): string {
+  const clauses = manifest.fields.map((field) => {
+    const left = `${identifier('existing')}.${identifier(field.name)}`;
+    const right = `${identifier('source')}.${identifier(field.name)}`;
+    return `    WHEN NOT ${valuesEqualSql(field, left, right)} THEN ${literal(field.name)}`;
+  });
+  return ['    CASE', ...clauses, '    ELSE NULL', '    END'].join('\n');
+}
+
+function identityMatchSql(identity: string[]): string {
+  return identity
+    .map((name) => (
+      `${identifier(name)} IS NOT DISTINCT FROM ${identifier('source')}.${identifier(name)}`
+    ))
+    .join(' AND ');
+}
+
+function identityDescriptionSql(identity: string[]): string {
+  return identity
+    .map((name) => (
+      `${literal(`${name}=`)} || coalesce(${identifier('source')}.${identifier(name)}::text, 'null')`
+    ))
+    .join(` || ',' || `);
+}
+
 function functionsSql(manifest: DatasetManifest, table: string, tenantKey: string, roleName: string): string {
   const schema = identifier('heroes_agent_datasets');
   const target = `${schema}.${identifier(table)}`;
@@ -172,6 +214,9 @@ function functionsSql(manifest: DatasetManifest, table: string, tenantKey: strin
   ));
   const ingest = `${schema}.${identifier(derivedIdentifier('ingest', table))}`;
   const query = `${schema}.${identifier(derivedIdentifier('query', table))}`;
+  const sourceColumns = fields
+    .map((name) => `${identifier('source')}.${identifier(name)}`)
+    .join(', ');
 
   return [
     `CREATE OR REPLACE FUNCTION ${ingest}(${identifier('p_rows')} jsonb)`,
@@ -180,12 +225,38 @@ function functionsSql(manifest: DatasetManifest, table: string, tenantKey: strin
     'SECURITY INVOKER',
     `SET search_path = pg_catalog, ${schema}`,
     'AS $function$',
-    `DECLARE ${identifier('inserted_count')} bigint;`,
+    'DECLARE',
+    `  ${identifier('inserted_count')} bigint := 0;`,
+    `  ${identifier('source')} record;`,
+    `  ${identifier('existing')} record;`,
+    `  ${identifier('row_number')} integer := 0;`,
+    `  ${identifier('changed_field')} text;`,
     'BEGIN',
-    `  INSERT INTO ${target} (${commaList(insertColumns)})`,
-    `  SELECT ${literal(tenantKey)}, ${fields.map((name) => `${identifier('source')}.${identifier(name)}`).join(', ')}`,
-    `  FROM jsonb_to_recordset(${identifier('p_rows')}) AS ${identifier('source')}(${recordColumns.join(', ')});`,
-    `  GET DIAGNOSTICS ${identifier('inserted_count')} = ROW_COUNT;`,
+    `  FOR ${identifier('source')} IN`,
+    `    SELECT * FROM jsonb_to_recordset(${identifier('p_rows')}) AS ${identifier('source')}(${recordColumns.join(', ')})`,
+    '  LOOP',
+    `    ${identifier('row_number')} := ${identifier('row_number')} + 1;`,
+    `    SELECT * INTO ${identifier('existing')}`,
+    `    FROM ${target}`,
+    `    WHERE ${identifier('tenant_key')} = ${literal(tenantKey)}`
+    + ` AND ${identityMatchSql(manifest.identity)};`,
+    '    IF FOUND THEN',
+    `      ${identifier('changed_field')} :=`,
+    firstChangedFieldSql(manifest),
+    '      ;',
+    `      IF ${identifier('changed_field')} IS NOT NULL THEN`,
+    `        RAISE EXCEPTION 'row % identity % changed field %',`,
+    `          ${identifier('row_number')},`,
+    `          ${identityDescriptionSql(manifest.identity)},`,
+    `          ${identifier('changed_field')}`,
+    "          USING ERRCODE = 'HD001';",
+    '      END IF;',
+    '    ELSE',
+    `      INSERT INTO ${target} (${commaList(insertColumns)})`,
+    `      VALUES (${literal(tenantKey)}, ${sourceColumns});`,
+    `      ${identifier('inserted_count')} := ${identifier('inserted_count')} + 1;`,
+    '    END IF;',
+    '  END LOOP;',
     `  RETURN ${identifier('inserted_count')};`,
     'END',
     '$function$;',
