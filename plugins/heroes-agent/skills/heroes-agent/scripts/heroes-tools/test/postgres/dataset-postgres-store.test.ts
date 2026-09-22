@@ -43,6 +43,7 @@ const manifest = {
     { name: 'active', type: 'boolean', required: true },
     { name: 'note', type: 'text', required: false },
     { name: 'attrs', type: 'json', required: false },
+    { name: 'seen_at', type: 'timestamp', required: false },
     { name: 'source_file', type: 'text', required: true },
     { name: 'source_ref', type: 'text', required: true },
     { name: 'source_hash', type: 'text', required: true },
@@ -55,6 +56,33 @@ const manifest = {
   deduplication: ['source_file', 'source_hash'],
   indexes: [{ name: 'by_external_ref', fields: ['region', 'external_ref'], unique: true }],
   filters: [{ field: 'region', operators: ['equals', 'one-of'] }],
+  provenance: { sourceFile: 'source_file', sourceRef: 'source_ref', sourceHash: 'source_hash' },
+  approval: {
+    status: 'approval_status',
+    approvedBy: 'approved_by',
+    approvedAt: 'approved_at',
+    contentHash: 'content_hash',
+  },
+} as const satisfies DatasetManifest;
+
+const timestampIdentityManifest = {
+  schemaVersion: '1.0',
+  dataset: 'acme.store_events',
+  fields: [
+    { name: 'sku', type: 'text', required: true },
+    { name: 'occurred_at', type: 'timestamp', required: true },
+    { name: 'source_file', type: 'text', required: true },
+    { name: 'source_ref', type: 'text', required: true },
+    { name: 'source_hash', type: 'text', required: true },
+    { name: 'approval_status', type: 'text', required: true },
+    { name: 'approved_by', type: 'text', required: true },
+    { name: 'approved_at', type: 'timestamp', required: true },
+    { name: 'content_hash', type: 'text', required: true },
+  ],
+  identity: ['sku', 'occurred_at'],
+  deduplication: ['source_file', 'source_hash'],
+  indexes: [],
+  filters: [],
   provenance: { sourceFile: 'source_file', sourceRef: 'source_ref', sourceHash: 'source_hash' },
   approval: {
     status: 'approval_status',
@@ -91,7 +119,17 @@ test('kernel over the PostgreSQL store matches the six #51 proofs', { timeout: 1
     const seam = new LocalPostgresSeam(harness.client);
     const adminSeam = new LocalPostgresSeam(harness.adminClient);
     const proposal = writeDatasetProposal({ workspace, manifest, tenantKey, migrationVersion });
-    await seam.applyMigrations([bootstrapPath, ...proposal.files.map(({ path }) => join(workspace, path))]);
+    const timestampProposal = writeDatasetProposal({
+      workspace,
+      manifest: timestampIdentityManifest,
+      tenantKey,
+      migrationVersion: '20260922120001',
+    });
+    await seam.applyMigrations([
+      bootstrapPath,
+      ...proposal.files.map(({ path }) => join(workspace, path)),
+      ...timestampProposal.files.map(({ path }) => join(workspace, path)),
+    ]);
     await adminSeam.runQuery(`SET ROLE "${tenantRole}"`);
 
     const store = openPostgresDatasetStore({
@@ -158,6 +196,43 @@ test('kernel over the PostgreSQL store matches the six #51 proofs', { timeout: 1
     await t.test('5.2: two spellings per compared type are not a change', async () => {
       assert.equal((await kernel.ingest(manifest.dataset, [{ ...utcRow, price: 10.50 }])).inserted, 0);
       assert.equal((await kernel.ingest(manifest.dataset, [{ ...utcRow, attrs: { b: 2, a: 1 } }])).inserted, 0);
+      const priceSql = await adminSeam.runQuery(
+        `SELECT heroes_agent_datasets.ingest_${table}('[{"sku":"A-1","external_ref":"vendor-a","region":"eu","price":10.50,"active":true,"note":"keep","attrs":{"a":1,"b":2},"source_file":"prices.csv","source_ref":"row-1","source_hash":"source-a","approval_status":"approved","approved_by":"owner","approved_at":"2026-09-16T10:00:00Z","content_hash":"content-a"}]'::jsonb) AS inserted_count`,
+      );
+      assert.equal(priceSql[0]?.inserted_count, '0');
+      const attrsSql = await adminSeam.runQuery(
+        `SELECT heroes_agent_datasets.ingest_${table}('[{"sku":"A-1","external_ref":"vendor-a","region":"eu","price":10.5,"active":true,"note":"keep","attrs":{"b":2,"a":1},"source_file":"prices.csv","source_ref":"row-1","source_hash":"source-a","approval_status":"approved","approved_by":"owner","approved_at":"2026-09-16T10:00:00Z","content_hash":"content-a"}]'::jsonb) AS inserted_count`,
+      );
+      assert.equal(attrsSql[0]?.inserted_count, '0');
+    });
+
+    await t.test('S2: an empty optional non-text field does not raise', async () => {
+      const result = await kernel.ingest(manifest.dataset, [{
+        ...utcRow,
+        sku: 'A-3',
+        external_ref: 'vendor-c',
+        source_hash: 'source-c',
+        content_hash: 'content-c',
+        seen_at: '',
+      }]);
+      assert.equal(result.inserted, 1);
+    });
+
+    await t.test('B1: a timestamp identity field ingests through SQL', async () => {
+      const inserted = await adminSeam.runQuery(
+        `SELECT heroes_agent_datasets.ingest_acme__store_events(${sqlJson([{
+          sku: 'E-1',
+          occurred_at: '2026-09-16T10:00:00Z',
+          source_file: 'events.csv',
+          source_ref: 'row-1',
+          source_hash: 'event-a',
+          approval_status: 'approved',
+          approved_by: 'owner',
+          approved_at: '2026-09-16T10:00:00Z',
+          content_hash: 'event-content-a',
+        }])}) AS inserted_count`,
+      );
+      assert.equal(inserted[0]?.inserted_count, '1');
     });
 
     await t.test('6a: the export path is present', () => {

@@ -33,15 +33,15 @@ const JSON_TYPES: Record<DatasetField['type'], string> = {
   json: 'object',
 };
 
-function identifier(value: string): string {
+export function identifier(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
 }
 
-function literal(value: string): string {
+export function literal(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
-function derivedIdentifier(...parts: string[]): string {
+export function derivedIdentifier(...parts: string[]): string {
   const name = parts.join('_');
   if (Buffer.byteLength(name, 'utf8') <= 63) return name;
   const suffix = `_${createHash('sha256').update(name).digest('hex').slice(0, 12)}`;
@@ -64,7 +64,7 @@ function tenantRoleName(tenantKey: string): string {
   return role;
 }
 
-function tableName(dataset: string): string {
+export function tableName(dataset: string): string {
   const name = dataset.replaceAll('.', '__');
   if (Buffer.byteLength(name, 'utf8') > 63) {
     throw new Error(`Dataset table name exceeds 63 characters: ${name}`);
@@ -210,15 +210,12 @@ function functionsSql(manifest: DatasetManifest, table: string, tenantKey: strin
   const fields = manifest.fields.map(({ name }) => name);
   const insertColumns = ['tenant_key', ...fields];
   const recordColumns = manifest.fields.map((field) => (
-    `${identifier(field.name)} ${field.type === 'timestamp' ? 'text' : SQL_TYPES[field.type]}`
+    `${identifier(field.name)} ${SQL_TYPES[field.type]}`
   ));
   const ingest = `${schema}.${identifier(derivedIdentifier('ingest', table))}`;
   const query = `${schema}.${identifier(derivedIdentifier('query', table))}`;
-  const sourceColumns = manifest.fields
-    .map((field) => {
-      const column = `${identifier('source')}.${identifier(field.name)}`;
-      return field.type === 'timestamp' ? `${column}::timestamptz` : column;
-    })
+  const sourceColumns = fields
+    .map((name) => `${identifier('source')}.${identifier(name)}`)
     .join(', ');
 
   return [
@@ -241,7 +238,8 @@ function functionsSql(manifest: DatasetManifest, table: string, tenantKey: strin
     `    ${identifier('row_number')} := ${identifier('row_number')} + 1;`,
     `    SELECT * INTO ${identifier('existing')}`,
     `    FROM ${target}`,
-    `    WHERE ${identityMatchSql(manifest.identity)};`,
+    `    WHERE ${identifier('tenant_key')} = ${literal(tenantKey)}`
+    + ` AND ${identityMatchSql(manifest.identity)};`,
     '    IF FOUND THEN',
     `      ${identifier('changed_field')} :=`,
     firstChangedFieldSql(manifest),

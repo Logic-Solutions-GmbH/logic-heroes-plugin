@@ -1,6 +1,8 @@
-import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import type { DatasetManifest } from './dataset-manifest';
+import {
+  derivedIdentifier, identifier, literal, tableName,
+} from './dataset-postgres-compiler';
+import type { DatasetField, DatasetManifest } from './dataset-manifest';
 import type { DatasetRow, DatasetStore } from './dataset-store';
 import { openLocalDatasetStore } from './local-dataset-store';
 
@@ -11,37 +13,19 @@ export interface PostgresDatasetStoreOptions {
   tenantKey: string;
 }
 
-function identifier(value: string): string {
-  return `"${value.replaceAll('"', '""')}"`;
-}
-
-function literal(value: string): string {
-  return `'${value.replaceAll("'", "''")}'`;
-}
-
-function derivedIdentifier(...parts: string[]): string {
-  const name = parts.join('_');
-  if (Buffer.byteLength(name, 'utf8') <= 63) return name;
-  const suffix = `_${createHash('sha256').update(name).digest('hex').slice(0, 12)}`;
-  const prefixBytes = 63 - Buffer.byteLength(suffix, 'utf8');
-  let prefix = '';
-  for (const character of name) {
-    if (Buffer.byteLength(prefix + character, 'utf8') > prefixBytes) break;
-    prefix += character;
-  }
-  return `${prefix}${suffix}`;
-}
-
-function tableName(dataset: string): string {
-  const name = dataset.replaceAll('.', '__');
-  if (Buffer.byteLength(name, 'utf8') > 63) {
-    throw new Error(`Dataset table name exceeds 63 characters: ${name}`);
-  }
-  return name;
-}
-
 function sqlJson(value: unknown): string {
   return `${literal(JSON.stringify(value))}::jsonb`;
+}
+
+function sqlValue(field: DatasetField, value: unknown): unknown {
+  if (field.type !== 'text' && value === '') return null;
+  return value;
+}
+
+function rowsForIngest(manifest: DatasetManifest, rows: DatasetRow[]): DatasetRow[] {
+  return rows.map((row) => Object.fromEntries(manifest.fields.map((field) => [
+    field.name, sqlValue(field, row[field.name]),
+  ])));
 }
 
 /** Write PostgreSQL timestamps in UTC. The local adapter keeps the given text. */
@@ -95,7 +79,7 @@ export function openPostgresDatasetStore(options: PostgresDatasetStoreOptions): 
       if (!isDeepStrictEqual(dataset.manifest, manifest)) {
         throw new Error(`Dataset is already defined with a different manifest: ${manifest.dataset}`);
       }
-      await runQuery(`SELECT ${ingest}(${sqlJson(dataset.rows)}) AS inserted_count`);
+      await runQuery(`SELECT ${ingest}(${sqlJson(rowsForIngest(manifest, dataset.rows))}) AS inserted_count`);
     },
 
     async writeExport(datasetId, contentHash, csv) {
