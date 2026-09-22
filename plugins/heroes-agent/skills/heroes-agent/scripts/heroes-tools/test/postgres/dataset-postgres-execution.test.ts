@@ -147,9 +147,25 @@ test('executes generated dataset DDL on isolated PostgreSQL 17', async (t) => {
     }
 
     await adminSeam.runQuery(`SET ROLE "${tenantRole}"`);
+    const identicalIngest = await adminSeam.runQuery(
+      `SELECT heroes_agent_datasets.ingest_${table}(${sqlJson(rows)}) AS inserted_count`,
+    );
+    assert.equal(identicalIngest[0]?.inserted_count, '0');
     await assert.rejects(
-      adminSeam.runQuery(`SELECT heroes_agent_datasets.ingest_${table}(${sqlJson(rows)})`),
-      (error: any) => error?.code === '23505',
+      adminSeam.runQuery(`SELECT heroes_agent_datasets.ingest_${table}(${sqlJson([{ ...rows[0], price: 99 }])})`),
+      (error: any) => error?.code === 'HD001',
+    );
+    await assert.rejects(
+      adminSeam.runQuery(`SELECT heroes_agent_datasets.ingest_${table}(${sqlJson([
+        {
+          sku: 'SKU-004', external_ref: 'REF-004', region: 'EU', price: 20, active: true,
+          source_file: 'prices.csv', source_ref: 'row-4', source_hash: 'source-4',
+          approval_status: 'approved', approved_by: 'owner', approved_at: '2026-09-19T09:03:00Z',
+          content_hash: 'content-4',
+        },
+        { ...rows[1], price: 99 },
+      ])})`),
+      (error: any) => error?.code === 'HD001',
     );
     const count = await adminSeam.runQuery(`SELECT count(*)::int AS count FROM heroes_agent_datasets."${table}"`);
     assert.equal(count[0]?.count, 3);

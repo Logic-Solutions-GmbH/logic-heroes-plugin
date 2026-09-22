@@ -161,6 +161,48 @@ function filterSql(manifest: DatasetManifest): string[] {
   });
 }
 
+function valuesEqualSql(field: DatasetField, left: string, right: string): string {
+  if (field.type === 'text') {
+    return `(((${left} IS NULL OR ${left} = '') AND (${right} IS NULL OR ${right} = ''))`
+      + ` OR ${left} IS NOT DISTINCT FROM ${right})`;
+  }
+  if (field.type === 'timestamp') {
+    return `((${left})::timestamptz IS NOT DISTINCT FROM (${right})::timestamptz)`;
+  }
+  if (field.type === 'integer' || field.type === 'decimal') {
+    return `((${left})::numeric IS NOT DISTINCT FROM (${right})::numeric)`;
+  }
+  if (field.type === 'json') {
+    return `((${left})::jsonb IS NOT DISTINCT FROM (${right})::jsonb)`;
+  }
+  return `(${left} IS NOT DISTINCT FROM ${right})`;
+}
+
+function firstChangedFieldSql(manifest: DatasetManifest): string {
+  const clauses = manifest.fields.map((field) => {
+    const left = `${identifier('existing')}.${identifier(field.name)}`;
+    const right = `${identifier('source')}.${identifier(field.name)}`;
+    return `    WHEN NOT ${valuesEqualSql(field, left, right)} THEN ${literal(field.name)}`;
+  });
+  return ['    CASE', ...clauses, '    ELSE NULL', '    END'].join('\n');
+}
+
+function identityMatchSql(identity: string[]): string {
+  return identity
+    .map((name) => (
+      `${identifier(name)} IS NOT DISTINCT FROM ${identifier('source')}.${identifier(name)}`
+    ))
+    .join(' AND ');
+}
+
+function identityDescriptionSql(identity: string[]): string {
+  return identity
+    .map((name) => (
+      `${literal(`${name}=`)} || coalesce(${identifier('source')}.${identifier(name)}::text, 'null')`
+    ))
+    .join(` || ',' || `);
+}
+
 function functionsSql(manifest: DatasetManifest, table: string, tenantKey: string, roleName: string): string {
   const schema = identifier('heroes_agent_datasets');
   const target = `${schema}.${identifier(table)}`;
@@ -168,10 +210,16 @@ function functionsSql(manifest: DatasetManifest, table: string, tenantKey: strin
   const fields = manifest.fields.map(({ name }) => name);
   const insertColumns = ['tenant_key', ...fields];
   const recordColumns = manifest.fields.map((field) => (
-    `${identifier(field.name)} ${SQL_TYPES[field.type]}`
+    `${identifier(field.name)} ${field.type === 'timestamp' ? 'text' : SQL_TYPES[field.type]}`
   ));
   const ingest = `${schema}.${identifier(derivedIdentifier('ingest', table))}`;
   const query = `${schema}.${identifier(derivedIdentifier('query', table))}`;
+  const sourceColumns = manifest.fields
+    .map((field) => {
+      const column = `${identifier('source')}.${identifier(field.name)}`;
+      return field.type === 'timestamp' ? `${column}::timestamptz` : column;
+    })
+    .join(', ');
 
   return [
     `CREATE OR REPLACE FUNCTION ${ingest}(${identifier('p_rows')} jsonb)`,
@@ -180,12 +228,37 @@ function functionsSql(manifest: DatasetManifest, table: string, tenantKey: strin
     'SECURITY INVOKER',
     `SET search_path = pg_catalog, ${schema}`,
     'AS $function$',
-    `DECLARE ${identifier('inserted_count')} bigint;`,
+    'DECLARE',
+    `  ${identifier('inserted_count')} bigint := 0;`,
+    `  ${identifier('source')} record;`,
+    `  ${identifier('existing')} record;`,
+    `  ${identifier('row_number')} integer := 0;`,
+    `  ${identifier('changed_field')} text;`,
     'BEGIN',
-    `  INSERT INTO ${target} (${commaList(insertColumns)})`,
-    `  SELECT ${literal(tenantKey)}, ${fields.map((name) => `${identifier('source')}.${identifier(name)}`).join(', ')}`,
-    `  FROM jsonb_to_recordset(${identifier('p_rows')}) AS ${identifier('source')}(${recordColumns.join(', ')});`,
-    `  GET DIAGNOSTICS ${identifier('inserted_count')} = ROW_COUNT;`,
+    `  FOR ${identifier('source')} IN`,
+    `    SELECT * FROM jsonb_to_recordset(${identifier('p_rows')}) AS ${identifier('source')}(${recordColumns.join(', ')})`,
+    '  LOOP',
+    `    ${identifier('row_number')} := ${identifier('row_number')} + 1;`,
+    `    SELECT * INTO ${identifier('existing')}`,
+    `    FROM ${target}`,
+    `    WHERE ${identityMatchSql(manifest.identity)};`,
+    '    IF FOUND THEN',
+    `      ${identifier('changed_field')} :=`,
+    firstChangedFieldSql(manifest),
+    '      ;',
+    `      IF ${identifier('changed_field')} IS NOT NULL THEN`,
+    `        RAISE EXCEPTION 'row % identity % changed field %',`,
+    `          ${identifier('row_number')},`,
+    `          ${identityDescriptionSql(manifest.identity)},`,
+    `          ${identifier('changed_field')}`,
+    "          USING ERRCODE = 'HD001';",
+    '      END IF;',
+    '    ELSE',
+    `      INSERT INTO ${target} (${commaList(insertColumns)})`,
+    `      VALUES (${literal(tenantKey)}, ${sourceColumns});`,
+    `      ${identifier('inserted_count')} := ${identifier('inserted_count')} + 1;`,
+    '    END IF;',
+    '  END LOOP;',
     `  RETURN ${identifier('inserted_count')};`,
     'END',
     '$function$;',

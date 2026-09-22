@@ -9,9 +9,10 @@
   "description": "Shared Logic Heroes API and local rate-book scripts for heroes-agent.",
   "scripts": {
     "heroes": "tsx",
-    "typecheck": "tsc --noEmit && tsc --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --lib ES2022 --types node --strict --esModuleInterop --skipLibCheck test/support/postgres-harness.ts test/postgres/dataset-postgres-execution.test.ts test/dataset-extension-proof.ts test/dataset-extension-proof.test.ts",
+    "typecheck": "tsc --noEmit && tsc --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --lib ES2022 --types node --strict --esModuleInterop --skipLibCheck test/support/postgres-harness.ts test/postgres/dataset-postgres-execution.test.ts test/postgres/dataset-postgres-store.test.ts test/dataset-extension-proof.ts test/dataset-extension-proof.test.ts",
     "test": "node --import tsx --test test/*.test.ts",
     "test:dataset-postgres": "node --import tsx --test test/postgres/dataset-postgres-execution.test.ts",
+    "test:dataset-postgres-store": "node --import tsx --test test/postgres/dataset-postgres-store.test.ts",
     "prove:dataset-extension": "node --import tsx --test test/dataset-extension-proof.test.ts"
   },
   "devDependencies": {
