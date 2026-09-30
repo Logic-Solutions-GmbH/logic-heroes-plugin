@@ -54,20 +54,59 @@ function timestampNames(): string[] {
   return manifest.fields.filter((field) => field.type === 'timestamp').map((field) => field.name);
 }
 
-/** Q5 = A: compare timestamp fields as instants, never as text. */
+function parseInstant(value: unknown, label: string): number {
+  const instant = Date.parse(String(value));
+  assert.ok(Number.isFinite(instant), `${label}: ${String(value)}`);
+  return instant;
+}
+
+function expectedRowByIdentity(casNumber: string): DatasetRow {
+  const row = validRows(fixtureRows).find((item) => item.cas_number === casNumber);
+  assert.ok(row, `fixture has no valid row for ${casNumber}`);
+  return row;
+}
+
+function assertRowMatchesFixture(actual: DatasetRow, adapter: string): void {
+  const expected = expectedRowByIdentity(String(actual.cas_number));
+  const timestamps = timestampNames();
+  for (const field of manifest.fields) {
+    const actualValue = actual[field.name];
+    const expectedValue = expected[field.name];
+    if (timestamps.includes(field.name)) {
+      assert.equal(
+        parseInstant(actualValue, `${field.name} is not a parseable instant on ${adapter}`),
+        parseInstant(expectedValue, `${field.name} is not a parseable instant on fixture`),
+        `fixture instant for ${field.name} on ${adapter} ${String(actual.cas_number)}`,
+      );
+      continue;
+    }
+    assert.deepEqual(actualValue, expectedValue, `${adapter} field ${field.name}`);
+  }
+}
+
+/** Q5 = A: compare timestamp fields as instants, never as text. Anchor each row to the fixture. */
 function assertRowsMatchAsInstants(localRows: DatasetRow[], postgresRows: DatasetRow[]): void {
   const left = sortByIdentity(localRows);
   const right = sortByIdentity(postgresRows);
   assert.equal(left.length, right.length);
   const timestamps = timestampNames();
   for (let index = 0; index < left.length; index++) {
+    assertRowMatchesFixture(left[index], 'local');
     for (const field of manifest.fields) {
       const localValue = left[index][field.name];
       const postgresValue = right[index][field.name];
       if (timestamps.includes(field.name)) {
+        const localInstant = parseInstant(
+          localValue,
+          `${field.name} is not a parseable instant on local`,
+        );
+        const postgresInstant = parseInstant(
+          postgresValue,
+          `${field.name} is not a parseable instant on postgres`,
+        );
         assert.equal(
-          Date.parse(String(localValue)),
-          Date.parse(String(postgresValue)),
+          localInstant,
+          postgresInstant,
           `D-T instant comparison for ${field.name} on ${String(left[index].cas_number)}`,
         );
         continue;
@@ -77,13 +116,20 @@ function assertRowsMatchAsInstants(localRows: DatasetRow[], postgresRows: Datase
   }
 }
 
-function filterQueries(): DatasetQuery[] {
+type SecondDomainFilter = DatasetQuery & { expected: string[] };
+
+function filterQueries(): SecondDomainFilter[] {
   return [
-    { field: 'supplier', operator: 'equals', value: 'acid-corp' },
-    { field: 'supplier', operator: 'one-of', value: ['acid-corp', 'base-chem'] },
-    { field: 'unit_price', operator: 'range', value: { from: 1, to: 200 } },
-    { field: 'approval_status', operator: 'equals', value: 'draft' },
-    { field: 'approval_status', operator: 'equals', value: 'approved' },
+    { field: 'supplier', operator: 'equals', value: 'acid-corp', expected: ['7664-93-9'] },
+    {
+      field: 'supplier',
+      operator: 'one-of',
+      value: ['acid-corp', 'base-chem'],
+      expected: ['1310-73-2', '7664-93-9'],
+    },
+    { field: 'unit_price', operator: 'range', value: { from: 1, to: 200 }, expected: ['1310-73-2', '7664-93-9'] },
+    { field: 'approval_status', operator: 'equals', value: 'draft', expected: ['1310-73-2'] },
+    { field: 'approval_status', operator: 'equals', value: 'approved', expected: ['7664-93-9'] },
   ];
 }
 
@@ -165,14 +211,32 @@ test('a second domain needs only a manifest and a rows file on both adapters', {
       );
     });
 
+    await t.test('deduplication refuses a distinct identity with the same source key', async () => {
+      const collider = { ...accepted[2], cas_number: '7732-18-5' };
+      await assert.rejects(
+        localKernel.ingest(datasetId, [collider]),
+        /deduplication key source_file=price-book\.xlsx,source_hash=source-naoh conflicts with an existing row/,
+      );
+      await assert.rejects(
+        postgresKernel.ingest(datasetId, [collider]),
+        /deduplication key source_file=price-book\.xlsx,source_hash=source-naoh conflicts with an existing row/,
+      );
+    });
+
     await t.test('each declared filter answers on both adapters', async () => {
-      const declaredFields = manifest.filters.map((filter) => filter.field).sort();
-      const queriedFields = [...new Set(filterQueries().map((query) => query.field))].sort();
-      assert.deepEqual(queriedFields, declaredFields);
+      const declared = manifest.filters
+        .flatMap((filter) => filter.operators.map((operator) => `${filter.field}:${operator}`))
+        .sort();
+      const queried = [...new Set(filterQueries().map((query) => `${query.field}:${query.operator}`))].sort();
+      assert.deepEqual(queried, declared);
       for (const query of filterQueries()) {
         const localRows = await localKernel.query(datasetId, query);
         const postgresRows = await postgresKernel.query(datasetId, query);
-        assert.ok(localRows.length > 0, `filter ${query.field} ${query.operator}`);
+        assert.deepEqual(
+          localRows.map((row) => row.cas_number).sort(),
+          query.expected,
+          `filter ${query.field} ${query.operator}`,
+        );
         assertRowsMatchAsInstants(localRows, postgresRows);
       }
     });
@@ -236,10 +300,19 @@ test('a second domain needs only a manifest and a rows file on both adapters', {
         postgresQuotedAt,
         'D-T: local keeps +02:00 text; PostgreSQL returns UTC Z (#51)',
       );
-      // D-T instant comparison — Q5 = A. Delete this assertion to prove the test can fail.
+      const localQuotedInstant = parseInstant(
+        localQuotedAt,
+        'quoted_at is not a parseable instant on local',
+      );
+      const postgresQuotedInstant = parseInstant(
+        postgresQuotedAt,
+        'quoted_at is not a parseable instant on postgres',
+      );
+      // D-T instant comparison — Q5 = A. Replace the instant values with the raw strings to prove
+      // this fails: #51 leaves local at +02:00 and PostgreSQL at Z.
       assert.equal(
-        Date.parse(String(localQuotedAt)),
-        Date.parse(String(postgresQuotedAt)),
+        localQuotedInstant,
+        postgresQuotedInstant,
         'D-T instant comparison',
       );
     });
