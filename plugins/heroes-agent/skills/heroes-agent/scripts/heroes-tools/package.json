@@ -13,6 +13,7 @@
     "test": "node --import tsx --test test/*.test.ts",
     "test:dataset-postgres": "node --import tsx --test test/postgres/dataset-postgres-execution.test.ts",
     "test:dataset-postgres-store": "node --import tsx --test test/postgres/dataset-postgres-store.test.ts",
+    "test:dataset-second-domain": "node --import tsx --test test/postgres/dataset-second-domain.test.ts",
     "prove:dataset-extension": "node --import tsx --test test/dataset-extension-proof.test.ts"
   },
   "devDependencies": {

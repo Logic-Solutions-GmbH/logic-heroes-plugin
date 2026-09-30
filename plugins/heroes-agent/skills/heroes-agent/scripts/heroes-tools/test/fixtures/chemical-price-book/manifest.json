@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "1.0",
+  "dataset": "lab.chemical_price_book",
+  "fields": [
+    { "name": "cas_number", "type": "text", "required": true },
+    { "name": "unit", "type": "text", "required": true },
+    { "name": "valid_from", "type": "date", "required": true },
+    { "name": "valid_to", "type": "date", "required": true },
+    { "name": "supplier", "type": "text", "required": true },
+    { "name": "unit_price", "type": "decimal", "required": true },
+    { "name": "quoted_at", "type": "timestamp", "required": true },
+    { "name": "source_file", "type": "text", "required": true },
+    { "name": "source_ref", "type": "text", "required": true },
+    { "name": "source_hash", "type": "text", "required": true },
+    { "name": "approval_status", "type": "text", "required": true },
+    { "name": "approved_by", "type": "text", "required": true },
+    { "name": "approved_at", "type": "timestamp", "required": true },
+    { "name": "content_hash", "type": "text", "required": true }
+  ],
+  "identity": ["cas_number"],
+  "deduplication": ["source_file", "source_hash"],
+  "indexes": [],
+  "filters": [
+    { "field": "supplier", "operators": ["equals", "one-of"] },
+    { "field": "unit_price", "operators": ["range"] },
+    { "field": "approval_status", "operators": ["equals"] }
+  ],
+  "provenance": {
+    "sourceFile": "source_file",
+    "sourceRef": "source_ref",
+    "sourceHash": "source_hash"
+  },
+  "approval": {
+    "status": "approval_status",
+    "approvedBy": "approved_by",
+    "approvedAt": "approved_at",
+    "contentHash": "content_hash"
+  }
+}
