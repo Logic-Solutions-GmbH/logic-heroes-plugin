@@ -130,6 +130,9 @@ function filterQueries(): SecondDomainFilter[] {
     { field: 'unit_price', operator: 'range', value: { from: 1, to: 200 }, expected: ['1310-73-2', '7664-93-9'] },
     { field: 'approval_status', operator: 'equals', value: 'draft', expected: ['1310-73-2'] },
     { field: 'approval_status', operator: 'equals', value: 'approved', expected: ['7664-93-9'] },
+    { field: 'unit_price', operator: 'range', value: { from: 1, to: 100 }, expected: ['1310-73-2'] },
+    { field: 'unit_price', operator: 'range', value: { from: 100, to: 200 }, expected: ['7664-93-9'] },
+    { field: 'supplier', operator: 'one-of', value: ['salt-works', 'base-chem'], expected: ['1310-73-2'] },
   ];
 }
 
