@@ -2,7 +2,7 @@
 
 Heroes Agent turns a local agent into one tenant-scoped logistics peer for Logic Heroes. It triages deposited documents, drives legal HANDSHAKE and solicited one-to-one RFQ transitions, quotes from a local rate catalog, downloads service attachments, and watches for counterparty changes. The original demo remains outside this plugin unchanged.
 
-The plugin targets local Codex, Claude Code, and Cursor agents. It can bind one peer to one Supabase project for private operational memory. It does not provide equivalent browser-based ChatGPT operation: that requires a hosted MCP server, OAuth/user tenancy, durable hosting, and a replacement for local filesystem intake.
+The plugin targets local Codex, Claude Code, and Cursor agents. It does not provide equivalent browser-based ChatGPT operation: that would require a hosted MCP server, OAuth/user tenancy, durable hosting, and a replacement for local filesystem intake.
 
 ## Quick start (agents)
 
@@ -142,38 +142,6 @@ Cursor provides no general plugin validator and no local CLI install or list flo
 
 No installation command above stores a Heroes credential in a manifest or marketplace file.
 
-## Supabase project bootstrap
-
-S3 uses pinned Supabase CLI `2.117.0`. The setup helper installs it from the locked package file.
-
-Set `SUPABASE_ACCESS_TOKEN` and `SUPABASE_DB_PASSWORD` only in ignored peer file `self/.env`. OAuth remains the marketplace target. Never commit or print these local bootstrap values.
-
-From the peer workspace, preview one explicit project:
-
-```text
-node <plugin-root>/scripts/run-tool.mjs bootstrap-supabase.ts --project-ref <20-character-project-ref> --dry-run
-```
-
-Confirm the shown tenant and project. Then run the same command without `--dry-run`. Run it once more without `--project-ref`. The second apply must report a safe no-op.
-
-The ignored `self/supabase/binding.json` file makes the tenant and project binding inspectable. The versioned migration creates only the private `heroes_agent_control` bootstrap schema. S4 owns rate schemas, grants, RLS policies, and user-specific mappings.
-
-S4 rate mapping persists a human-confirmed, versioned profile at ignored `self/supabase/rate-profile.json`. It maps stable rate semantics to qualified user tables, views, functions, columns, or JSON Pointer paths. Each operation must use invoker security and database RLS bound to the tenant context. The profile contains no SQL or credential. The loader refuses proposals and any tenant or project mismatch. See `skills/heroes-agent/references/supabase-rate-profile.md`.
-
-The ACME S4b installer binds tenant `acme` to project `enjephpxfrbccskdljun`. It installs migration `20260912000100_acme_rate_model.sql`, tenant-context correction `20260912000200_acme_rate_context_key.sql`, and query-context correction `20260912000300_acme_rate_query_context.sql`. Run its five-step protocol from the bound peer workspace:
-
-```text
-node <plugin-root>/scripts/run-tool.mjs supabase-rate-model.ts discover
-node <plugin-root>/scripts/run-tool.mjs supabase-rate-model.ts propose
-node <plugin-root>/scripts/run-tool.mjs supabase-rate-model.ts confirm --proposal-hash <confirmed-hash>
-node <plugin-root>/scripts/run-tool.mjs supabase-rate-model.ts install --proposal-hash <confirmed-hash>
-node <plugin-root>/scripts/run-tool.mjs supabase-rate-model.ts reload
-```
-
-Stop after `propose`. A human must confirm the complete schema before `install`. A second `install` must apply no migration. It must still verify database metadata and run the rollback-only tenant-policy proof.
-
-See `skills/heroes-agent/references/supabase.md` for the exact failure meanings and recovery boundary.
-
 ## Peer initialization and authentication
 
 Node.js 18 or newer is required and enforced by the setup helper; Node.js 22 is recommended. Install the shared development/runtime dependencies once:
@@ -210,7 +178,6 @@ At runtime, `self/.env` wins over root `.env`; either file wins over inherited s
 - If `self/identity.md` is missing, or its required tenant key or display name is missing or still a placeholder, stop. Ask the human for those required values before any Heroes action. The three optional fields may remain `<optional>`.
 - If dependencies are missing, run `node <plugin-root>/scripts/setup-tools.mjs`. It executes `npm ci` and writes `node_modules`.
 - If authentication fails, verify the effective `API_URL` and the tenant-specific `API_KEY`. Never print the key.
-- If `self/supabase/migration-attempt.json` remains after a rate-model install, inspect live migration history and all metadata sections. Remove the marker only after an operator authorizes the safe retry.
 - After a host restart, start a new foreground watch. Durable watcher resume is not promised.
 
 ## Use
