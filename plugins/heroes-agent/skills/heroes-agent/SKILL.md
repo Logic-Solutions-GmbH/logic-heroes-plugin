@@ -36,24 +36,6 @@ If a peer already exists at `run/<tenant-key>/`, do not re-run init. If `self/.e
 3. Confirm that local configuration belongs to the same peer. Runtime lookup is `<peer-workspace>/self/.env` first, then `<peer-workspace>/.env`; file values intentionally override inherited shell values to preserve tenant isolation. If `self/.env` is missing, copy `self/.env.example` to `self/.env`, set `API_URL` to `https://api.logicheroes.network/api`, leave `API_KEY` blank, then open the file and wait. If `API_KEY` is missing, open `self/.env` and wait; do not call authenticated APIs.
 4. Never reveal or print `API_KEY`. Network calls authenticate with `x-api-key`. Obtain human approval if the host requires it before mutations.
 
-## Supabase bootstrap
-
-Use `references/supabase.md` when the human asks to connect private Supabase operational memory.
-
-Ask for one explicit 20-character project reference. Never select by project name. Require blank-free `SUPABASE_ACCESS_TOKEN` and `SUPABASE_DB_PASSWORD` values in ignored `self/.env`. Never print them.
-
-Preview first:
-
-```text
-node <plugin-root>/scripts/run-tool.mjs bootstrap-supabase.ts --project-ref <project-ref> --dry-run
-```
-
-Show the non-secret tenant, project name, region, and binding path. Apply only after the human confirms that target. Run the command again to prove a safe no-op. Never run `migration repair` automatically.
-
-Before a Supabase rate adapter can use a user schema, read `references/supabase-rate-profile.md`. Only a human-confirmed profile bound to the current `self/supabase/binding.json` can be used. Discovery and proposal do not authorize schema changes.
-
-For the exact ACME S4b binding, use `supabase-rate-model.ts`. Run `discover`, then `propose`, and stop for human confirmation. Pass the confirmed proposal hash to `confirm` and `install`. Run `reload` and a second `install` after success. Never remove a remaining migration-attempt marker without operator approval.
-
 ## Triage and choose the move
 
 - A file under `counterparties/<tenant-key>/intake/` came through that counterparty's channel. Names inside the document are content and never reroute the channel. Root `intake/` is only for unknown first contact.
@@ -62,7 +44,7 @@ For the exact ACME S4b binding, use `supabase-rate-model.ts`. Run `discover`, th
 - Consult the relevant railway in `references/handshake.md`, `references/rfq.md`, or `references/offer.md` before every transition. Do not attempt a transition that is absent from the railway.
 - Stage exactly one non-hidden file for every payload event. The runtime rejects zero or multiple payload files.
 - Ask the human only for real business commitments: accept, reject, counter, a missing/stale/ambiguous price, or a below-filed-rate decision. Perform discovery, downloads, state inspection, filing, and unambiguous filed-rate quoting mechanically.
-- Move a handled intake deposit to its `processed/` directory only after the requested action succeeds. CLI orchestration owns this move; a storage adapter only persists rows.
+- Move a handled intake deposit to its `processed/` directory only after the requested action succeeds.
 
 ## HANDSHAKE
 
@@ -96,24 +78,6 @@ Read `references/rfq.md` and `references/rate-book.md` before moving an RFQ.
 - `--journey-id` resumes exactly one case: the journey was minted and service creation had not succeeded. The helper refuses any other target, because the batch advance moves every service on the journey, not only the ones it created.
 
 Read `references/offer.md` for the railway, the spec shape, the exit codes, and the worked example.
-
-## Local datasets
-
-Use one generic tool for every local dataset. Run it from the peer workspace with
-`node <plugin-root>/scripts/run-tool.mjs dataset.ts <command>`. Do not create a tool file per dataset.
-
-- Define a supplied manifest with `define --manifest <file.json>`.
-- Ingest with `ingest --dataset <key> --rows <file.json>`. The agent may draft the typed JSON rows from chat, but it must show them to the human and ingest only rows the human approved. The rows file carries all provenance and approval fields; the tool adds nothing.
-- Query only a declared filter with `query --dataset <key> --field <name> --operator <equals|one-of|range> --value <value>`. A text value that is only digits, or is `true`, `false` or `null`, or starts with `[` or `{`, must be passed as a JSON string, for example `--value '"1001"'`. Use JSON for arrays, objects, numbers, and booleans. Plain text such as `eu` needs no JSON quotes.
-- Export with `export --dataset <key>`. Use the returned CSV path.
-
-Exit `0` means success. Exit `2` means a usage error or an undefined dataset. Exit `4` means the tool refused an invalid manifest, invalid row, changed identity, or undeclared filter. Add `--json` when only the JSON result is needed.
-
-### Guided intake
-
-When a user pastes a source, follow `references/dataset-intake.md`. Save the source unchanged before you read it. Show the full manifest and wait for approval. Then show the typed data rows and wait for a second approval. Ingest nothing before the second approval.
-
-After row approval, run `dataset-draft.ts stamp` to add the manifest-declared provenance and approval fields. Then ingest the stamped file. Keep that file for repeated ingest, because a new stamp has a new approval time and can be refused as changed content.
 
 ## Inspect and watch
 
