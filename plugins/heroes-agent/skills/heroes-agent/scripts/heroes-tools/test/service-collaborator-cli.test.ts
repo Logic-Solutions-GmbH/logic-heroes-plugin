@@ -280,7 +280,7 @@ test('create-shipment without --collaborator makes the same requests as before',
   );
 });
 
-test('understanding: a collaborator is a follow-up POST after the service exists, not a create-time role', async () => {
+test('understanding: a collaborator is a follow-up POST after HANDSHAKE, not a create-time role', async () => {
   await withServer(
     'heroes-collab-create-',
     (request, response) => {
@@ -315,30 +315,87 @@ test('understanding: a collaborator is a follow-up POST after the service exists
         [
           'POST /api/journeys',
           'POST /api/services',
-          'POST /api/services/service-1/collaborators',
-          'POST /api/services/service-1/collaborators',
           'POST /api/services/service-1/events',
           'POST /api/events/attachments',
+          'POST /api/services/service-1/collaborators',
+          'POST /api/services/service-1/collaborators',
         ],
       );
 
       const serviceBody = JSON.parse(requests[1].body.toString('utf8'));
       assert.equal('participantTenantKeys' in serviceBody, false);
       assert.equal('collaboratorTenantKey' in serviceBody, false);
-      assert.deepEqual(JSON.parse(requests[2].body.toString('utf8')), {
-        collaboratorTenantKey: 'example-collaborator',
-      });
-      assert.deepEqual(JSON.parse(requests[3].body.toString('utf8')), {
-        collaboratorTenantKey: 'example-taker',
-      });
-      const handshake = JSON.parse(requests[4].body.toString('utf8'));
+      const handshake = JSON.parse(requests[2].body.toString('utf8'));
       assert.deepEqual(handshake.strategy, {
         strategyKey: 'HANDSHAKE',
         stepKey: 'INITIATED',
         targetTenantKey: 'example-taker',
       });
+      assert.deepEqual(JSON.parse(requests[4].body.toString('utf8')), {
+        collaboratorTenantKey: 'example-collaborator',
+      });
+      assert.deepEqual(JSON.parse(requests[5].body.toString('utf8')), {
+        collaboratorTenantKey: 'example-taker',
+      });
       assert.match(result.stdout, /example-collaborator/);
       assert.match(result.stdout, /example-taker/);
+    },
+  );
+});
+
+test('create-shipment collaborator 404 leaves HANDSHAKE in place and names the recovery command', async () => {
+  await withServer(
+    'heroes-collab-create-404-',
+    (request, response) => {
+      const url = request.url ?? '';
+      if (url === '/api/journeys') return json(response, 201, { data: { id: 'journey-1' } });
+      if (url === '/api/services') return json(response, 201, { data: { id: 'service-1' } });
+      if (url === '/api/services/service-1/events') {
+        return json(response, 201, { data: { id: 73 } });
+      }
+      if (url === '/api/events/attachments') return json(response, 201, { data: { id: 88 } });
+      if (url === '/api/services/service-1/collaborators') {
+        return json(response, 404, {
+          success: false,
+          code: 'NOT_FOUND',
+          message: 'Tenant not found',
+        });
+      }
+      json(response, 500, { success: false, code: 'UNEXPECTED', message: 'not stubbed' });
+    },
+    async ({ workspace, port, requests }) => {
+      const folder = stageBooking(workspace);
+      const result = await runTool(workspace, port, [
+        'create-shipment.ts',
+        folder,
+        '--target',
+        'example-taker',
+        '--collaborator',
+        'example-collaborator',
+      ]);
+
+      assert.equal(result.code, 1, result.stdout);
+      assert.deepEqual(
+        requests.map((request) => `${request.method} ${request.url}`),
+        [
+          'POST /api/journeys',
+          'POST /api/services',
+          'POST /api/services/service-1/events',
+          'POST /api/events/attachments',
+          'POST /api/services/service-1/collaborators',
+        ],
+      );
+      assert.deepEqual(JSON.parse(requests[2].body.toString('utf8')).strategy, {
+        strategyKey: 'HANDSHAKE',
+        stepKey: 'INITIATED',
+        targetTenantKey: 'example-taker',
+      });
+      assert.match(result.stderr, /NOT_FOUND/);
+      assert.match(result.stderr, /serviceId\s+service-1/);
+      assert.match(
+        result.stderr,
+        /add-service-collaborator\.ts service-1 --tenant-key example-collaborator/,
+      );
     },
   );
 });

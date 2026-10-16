@@ -81,20 +81,6 @@ run(async (config) => {
   kv('serviceId', service.id);
   kv('serviceKey', serviceKey);
 
-  if (collaboratorKeys.length > 0) {
-    heading('Adding collaborators');
-    for (const tenantKey of collaboratorKeys) {
-      const result = await addServiceCollaborator(config, {
-        serviceId: service.id,
-        apiKey,
-        tenantKey,
-      });
-      kv('tenantKey', result.tenantKey);
-      kv('collaboratorId', result.id);
-      kv('created', result.created);
-    }
-  }
-
   heading(`Initiating handshake → ${target}`);
   const { event, attachmentMode } = await createEventWithAttachment(config, {
     serviceId: service.id,
@@ -108,6 +94,28 @@ run(async (config) => {
   });
   kv('eventId', event.id);
   kv('attachment', `${payload.filename} (${attachmentMode})`);
+
+  if (collaboratorKeys.length > 0) {
+    heading('Adding collaborators');
+    for (const tenantKey of collaboratorKeys) {
+      try {
+        const result = await addServiceCollaborator(config, {
+          serviceId: service.id,
+          apiKey,
+          tenantKey,
+        });
+        kv('tenantKey', result.tenantKey);
+        kv('collaboratorId', result.id);
+        kv('created', result.created);
+      } catch (err) {
+        console.error(`\n  serviceId         ${service.id}`);
+        console.error(
+          `    npx tsx add-service-collaborator.ts ${service.id} --tenant-key ${tenantKey}`,
+        );
+        throw err;
+      }
+    }
+  }
 
   heading('Done');
   kv('serviceId', service.id);
