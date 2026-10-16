@@ -372,6 +372,8 @@ test('create-shipment collaborator 404 leaves HANDSHAKE in place and names the r
         'example-taker',
         '--collaborator',
         'example-collaborator',
+        '--collaborator',
+        'example-taker',
       ]);
 
       assert.equal(result.code, 1, result.stdout);
@@ -394,7 +396,7 @@ test('create-shipment collaborator 404 leaves HANDSHAKE in place and names the r
       assert.match(result.stderr, /serviceId\s+service-1/);
       assert.match(
         result.stderr,
-        /add-service-collaborator\.ts service-1 --tenant-key example-collaborator/,
+        /add-service-collaborator\.ts service-1 --tenant-key example-collaborator --tenant-key example-taker/,
       );
     },
   );

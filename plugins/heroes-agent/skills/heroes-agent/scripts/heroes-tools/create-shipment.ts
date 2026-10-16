@@ -97,7 +97,8 @@ run(async (config) => {
 
   if (collaboratorKeys.length > 0) {
     heading('Adding collaborators');
-    for (const tenantKey of collaboratorKeys) {
+    for (let index = 0; index < collaboratorKeys.length; index++) {
+      const tenantKey = collaboratorKeys[index];
       try {
         const result = await addServiceCollaborator(config, {
           serviceId: service.id,
@@ -108,10 +109,12 @@ run(async (config) => {
         kv('collaboratorId', result.id);
         kv('created', result.created);
       } catch (err) {
+        const remaining = collaboratorKeys
+          .slice(index)
+          .map((key) => `--tenant-key ${key}`)
+          .join(' ');
         console.error(`\n  serviceId         ${service.id}`);
-        console.error(
-          `    npx tsx add-service-collaborator.ts ${service.id} --tenant-key ${tenantKey}`,
-        );
+        console.error(`    npx tsx add-service-collaborator.ts ${service.id} ${remaining}`);
         throw err;
       }
     }
