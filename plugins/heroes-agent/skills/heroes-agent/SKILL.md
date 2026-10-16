@@ -48,7 +48,8 @@ If a peer already exists at `run/<tenant-key>/`, do not re-run init. If `self/.e
 
 ## HANDSHAKE
 
-- Maker: inspect and stage the booking, then run `create-shipment.ts <payload-folder> --target <tenant-key>`. Record the returned IDs and watch the service.
+- Maker: inspect and stage the booking, then run `create-shipment.ts <payload-folder> --target example-taker [--collaborator example-collaborator]`. Repeat `--collaborator` for each tenant. The tool adds each collaborator after HANDSHAKE. Record the returned IDs and watch the service.
+- To add a collaborator on an existing service, run `add-service-collaborator.ts <service-id> --tenant-key example-collaborator`. Repeat `--tenant-key` for each tenant. This calls `POST /services/{serviceId}/collaborators` with `{ "collaboratorTenantKey": "example-collaborator" }`. Do not send a collaborator on `POST /services`; `participantTenantKeys` has no collaborator role.
 - If journey creation succeeds but service creation fails, rerun with `--journey-id <id>` to skip duplicate journey creation. Do not use this recovery after service creation succeeds; it cannot prevent a duplicate service.
 - Taker: discover with `list-requests.ts --direction incoming`, inspect with `service-status.ts <service-id>`, obtain the human's accept/reject decision, then run `accept-strategy.ts <service-id> --provider-ref <ref> [payload-folder]` or `reject-strategy.ts <service-id> --reason <text>`.
 - Only the target taker may accept or reject; acceptance requires `providerRef`.
