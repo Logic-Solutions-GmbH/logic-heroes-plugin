@@ -84,7 +84,7 @@ After the human supplies the JSON identity:
 1. Preserve both JSON strings exactly.
 2. Locate the installed plugin root.
 3. Run `node <plugin-root>/scripts/setup-tools.mjs` when dependencies are absent.
-4. Create one peer workspace under `run/<tenantKey>`.
+4. Create one peer workspace under `<tenantKey>`.
 5. Pass identity values as separate process arguments. Never build shell text from them.
 
 The process arguments are:
@@ -92,7 +92,7 @@ The process arguments are:
 ```text
 node
 <plugin-root>/scripts/init-peer.mjs
-run/<tenantKey>
+<tenantKey>
 --tenant-key
 <tenantKey>
 --display-name
@@ -101,9 +101,9 @@ run/<tenantKey>
 
 Use an argument-safe host process API. If you only have a shell interface, use safe quoting for every separate argument.
 
-Read `run/<tenantKey>/self/identity.md` after initialization. Compare both values character-for-character with the human's JSON. Stop if either value differs.
+Read `<tenantKey>/self/identity.md` after initialization. Compare both values character-for-character with the human's JSON. Stop if either value differs.
 
-Open `run/<tenantKey>/self/.env` for the human. The file already contains the hosted `API_URL` and a blank `API_KEY`.
+Open `<tenantKey>/self/.env` for the human. The file already contains the hosted `API_URL` and a blank `API_KEY`.
 
 Wait while the human adds the key. Never ask them to paste it into chat. Never print it. Never accept an inherited shell key for another tenant.
 

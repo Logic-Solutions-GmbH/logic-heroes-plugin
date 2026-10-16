@@ -10,19 +10,19 @@ Before any Heroes operation, collect these inputs:
 
 - Node.js 18 or newer and the CLI for the selected host;
 - the repository root and the plugin root at `plugins/heroes-agent`;
-- a peer parent directory where the operator can create `run/<tenant-key>`;
+- a peer parent directory where the operator can create `<tenant-key>`;
 - the human-provided **tenant key** and **display name** (never invent them);
 - npm registry access, or a complete local npm cache, for dependency setup.
 
 Then:
 
 1. For Codex or Claude Code, add the repository catalog and install the plugin with the command in [Install](#install). For Cursor, use the documented Dashboard import or local loader.
-2. Record the plugin root and the peer workspace path. `run/<tenant-key>` is relative to the current directory, not the plugin directory.
+2. Record the plugin root and the peer workspace path. `<tenant-key>` is relative to the current directory, not the plugin directory.
 3. Run `node <plugin-root>/scripts/setup-tools.mjs` if tool dependencies are missing.
-4. From the chosen peer parent directory, run `node <plugin-root>/scripts/init-peer.mjs run/<tenant-key> --tenant-key <key> --display-name <name>`.
-5. Open `run/<tenant-key>/self/.env`. The hosted `API_URL` is set, and `API_KEY` is blank.
+4. From the chosen peer parent directory, run `node <plugin-root>/scripts/init-peer.mjs <tenant-key> --tenant-key <key> --display-name <name>`.
+5. Open `<tenant-key>/self/.env`. The hosted `API_URL` is set, and `API_KEY` is blank.
 6. Stop and wait until the human sets `API_KEY`. Never print the key.
-7. Change directory to `run/<tenant-key>` before any `run-tool.mjs` command.
+7. Change directory to `<tenant-key>` before any `run-tool.mjs` command.
 8. Only then triage intake, drive railways, or call authenticated tools.
 
 If the peer already exists, do not rerun initialization or overwrite it. Follow [Recovery](#recovery).
@@ -31,7 +31,7 @@ If the peer already exists, do not rerun initialization or overwrite it. Follow 
 
 1. Load the plugin on your agent host with a current command below.
 2. Tell the agent your **tenant key** and **display name**.
-3. When it opens `run/<your-tenant>/self/.env`, paste your Logic Heroes API key into `API_KEY`.
+3. When it opens `<your-tenant>/self/.env`, paste your Logic Heroes API key into `API_KEY`.
 4. Leave `API_URL` as `https://api.logicheroes.network/api` unless you run Heroes locally (`http://localhost:3401/api`).
 5. Do not commit `self/.env`. Ask the agent to continue once the key is saved.
 
@@ -155,7 +155,7 @@ The helper always runs locked `npm ci` with the shared tools directory as the ch
 Choose a peer parent directory, record the plugin root, and create an isolated peer workspace. The destination resolves from the caller's current directory:
 
 ```text
-node <plugin-root>/scripts/init-peer.mjs run/acme-corp --tenant-key acme-corp --display-name "Acme Corp"
+node <plugin-root>/scripts/init-peer.mjs acme-corp --tenant-key acme-corp --display-name "Acme Corp"
 ```
 
 `init-peer` creates an ignored `self/.env` stub automatically:
