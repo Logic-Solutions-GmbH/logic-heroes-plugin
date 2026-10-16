@@ -131,8 +131,11 @@ function apiErrorDetail(value: unknown): string | undefined {
   return parts.length ? parts.join(': ') : undefined;
 }
 
-/** Call a JSON endpoint and return the unwrapped `data` field. */
-export async function api<T = any>(config: Config, opts: ApiOptions): Promise<T> {
+/** Call a JSON endpoint and return both the HTTP status and the unwrapped `data` field. */
+async function requestJson<T>(
+  config: Config,
+  opts: ApiOptions,
+): Promise<{ status: number; data: T }> {
   const url = new URL(config.apiUrl + opts.path);
   for (const [k, v] of Object.entries(opts.query ?? {})) {
     if (v !== undefined) url.searchParams.set(k, v);
@@ -157,15 +160,64 @@ export async function api<T = any>(config: Config, opts: ApiOptions): Promise<T>
 
   if (!res.ok) {
     // The API returns rich messages (e.g. "Only the target tenant can accept
-    // or reject a handshake request") — surface them verbatim.
-    const message =
+    // or reject a handshake request") — surface them verbatim. Heroes also
+    // sends a `code` field (`SERVICE_COLLABORATION_CONFLICT`); include it so
+    // CLI callers can name the refusal without reading the body.
+    const code = typeof json?.code === 'string' ? json.code.trim() : '';
+    const detail =
       apiErrorDetail(json?.message ?? json?.error ?? json) ??
       (text && !json ? text : undefined) ??
       res.statusText;
+    const parts = [code, detail].filter((part) => !!part);
+    const message = parts
+      .filter((part, index) => index === 0 || !code || !part.includes(code))
+      .join(': ');
     throw new ApiError(res.status, `${res.status} ${message}`, json);
   }
 
-  return (json?.data ?? json) as T;
+  return { status: res.status, data: (json?.data ?? json) as T };
+}
+
+/** Call a JSON endpoint and return the unwrapped `data` field. */
+export async function api<T = any>(config: Config, opts: ApiOptions): Promise<T> {
+  const { data } = await requestJson<T>(config, opts);
+  return data;
+}
+
+export interface ServiceCollaborator {
+  id: number;
+  serviceId: string;
+  collaboratorTenantId: number;
+  grantedByTenantId: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AddedServiceCollaborator extends ServiceCollaborator {
+  /** True when Heroes answered 201; false when the same collaboration was already active (200). */
+  created: boolean;
+  tenantKey: string;
+}
+
+/**
+ * POST /services/:serviceId/collaborators with `{ collaboratorTenantKey }`.
+ * OpenAPI: https://api.logicheroes.network/openapi (`info.version` 0.1.270).
+ */
+export async function addServiceCollaborator(
+  config: Config,
+  args: { serviceId: string; apiKey: string; tenantKey: string },
+): Promise<AddedServiceCollaborator> {
+  const tenantKey = args.tenantKey.trim();
+  if (!tenantKey) {
+    throw new Error('collaborator tenant key requires a value');
+  }
+  const { status, data } = await requestJson<ServiceCollaborator>(config, {
+    method: 'POST',
+    path: `/services/${args.serviceId}/collaborators`,
+    apiKey: args.apiKey,
+    body: { collaboratorTenantKey: tenantKey },
+  });
+  return { ...data, created: status === 201, tenantKey };
 }
 
 // ---------------------------------------------------------------------------
@@ -603,6 +655,24 @@ export function parseArgs(argv: string[]): ParsedArgs {
 export function flagString(flags: ParsedArgs['flags'], key: string): string | undefined {
   const v = flags[key];
   return typeof v === 'string' ? v : undefined;
+}
+
+/**
+ * Collect every `--key value` occurrence in order. Repeatable flags such as
+ * `--collaborator` and `--tenant-key` need this; `parseArgs` keeps last-wins.
+ */
+export function flagValues(argv: string[], key: string): string[] {
+  const values: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] !== `--${key}`) continue;
+    const next = argv[i + 1];
+    if (next === undefined || next.startsWith('--')) {
+      throw new Error(`--${key} requires a value`);
+    }
+    values.push(next);
+    i++;
+  }
+  return values;
 }
 
 /** Wrap a command's main(): load config, run, and print errors cleanly. */

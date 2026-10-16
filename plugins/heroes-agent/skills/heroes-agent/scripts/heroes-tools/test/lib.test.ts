@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import {
   csvToObjects,
+  flagValues,
   parseArgs,
   parseCsv,
   readPayloadFolder,
@@ -34,6 +35,29 @@ test('argument parser handles values, booleans, and positionals', () => {
     positional: ['service-1'],
     flags: { json: true, timeout: '5' },
   });
+});
+
+test('flagValues keeps every repeat of a valued flag, in order', () => {
+  assert.deepEqual(
+    flagValues(
+      [
+        'payload',
+        '--target',
+        'example-taker',
+        '--collaborator',
+        'example-collaborator',
+        '--collaborator',
+        'example-taker',
+      ],
+      'collaborator',
+    ),
+    ['example-collaborator', 'example-taker'],
+  );
+  assert.deepEqual(flagValues(['payload', '--target', 'example-taker'], 'collaborator'), []);
+  assert.throws(
+    () => flagValues(['svc', '--tenant-key'], 'tenant-key'),
+    /--tenant-key requires a value/,
+  );
 });
 
 test('payload folders enforce exactly one non-hidden file', () => {

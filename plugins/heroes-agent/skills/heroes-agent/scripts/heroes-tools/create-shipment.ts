@@ -8,18 +8,20 @@
  * Usage:
  *   npx tsx create-shipment.ts <payload-folder> --target <tenantKey> \
  *       [--journey-id <id>] [--service-key <key>] [--name <eventName>] \
- *       [--lo-code <UNLOCODE>]
+ *       [--lo-code <UNLOCODE>] [--collaborator <tenantKey> ...]
  *
  * Example:
  *   npx tsx create-shipment.ts ./payloads/handshake/request-service \
- *       --target schryver --service-key ltl_pickup_origin
+ *       --target example-taker --collaborator example-collaborator
  */
 import {
   run,
   parseArgs,
   flagString,
+  flagValues,
   requireApiKey,
   api,
+  addServiceCollaborator,
   readPayloadFolder,
   createEventWithAttachment,
   heading,
@@ -27,22 +29,27 @@ import {
 } from './lib';
 
 run(async (config) => {
-  const { positional, flags } = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  const { positional, flags } = parseArgs(argv);
   const folder = positional[0];
   const target = flagString(flags, 'target');
   const existingJourneyId = flagString(flags, 'journey-id');
   const serviceKey = flagString(flags, 'service-key') ?? 'ltl_pickup_origin';
   const name = flagString(flags, 'name') ?? 'Service Request';
   const loCode = flagString(flags, 'lo-code');
+  const collaboratorKeys = flagValues(argv, 'collaborator').map((key) => key.trim());
 
   if ('journey-id' in flags && !existingJourneyId?.trim()) {
     throw new Error('--journey-id requires a value');
+  }
+  if (collaboratorKeys.some((key) => !key)) {
+    throw new Error('--collaborator requires a value');
   }
   if (!folder || !target) {
     throw new Error(
       'Usage: npx tsx create-shipment.ts <payload-folder> --target <tenantKey> ' +
         '[--journey-id <id>] [--service-key <key>] [--name <eventName>] ' +
-        '[--lo-code <UNLOCODE>]',
+        '[--lo-code <UNLOCODE>] [--collaborator <tenantKey> ...]',
     );
   }
 
@@ -73,6 +80,20 @@ run(async (config) => {
   });
   kv('serviceId', service.id);
   kv('serviceKey', serviceKey);
+
+  if (collaboratorKeys.length > 0) {
+    heading('Adding collaborators');
+    for (const tenantKey of collaboratorKeys) {
+      const result = await addServiceCollaborator(config, {
+        serviceId: service.id,
+        apiKey,
+        tenantKey,
+      });
+      kv('tenantKey', result.tenantKey);
+      kv('collaboratorId', result.id);
+      kv('created', result.created);
+    }
+  }
 
   heading(`Initiating handshake → ${target}`);
   const { event, attachmentMode } = await createEventWithAttachment(config, {
