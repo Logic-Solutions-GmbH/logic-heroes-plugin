@@ -16,6 +16,7 @@ import {
   parseArgs,
   flagString,
   requireApiKey,
+  fetchServiceCarriage,
   fetchSnapshot,
   downloadAttachment,
   heading,
@@ -35,9 +36,22 @@ run(async (config) => {
   }
 
   const apiKey = requireApiKey(config);
+  const carriageView = await fetchServiceCarriage(config, apiKey, serviceId);
   const snap = await fetchSnapshot(config, apiKey, serviceId);
 
   heading(`Service ${serviceId}`);
+  heading('Carriage');
+  console.log(
+    carriageView.carriage ? JSON.stringify(carriageView.carriage, null, 2) : '  (not declared)',
+  );
+
+  heading('Carriage consistency');
+  console.log(
+    carriageView.carriageConsistency
+      ? JSON.stringify(carriageView.carriageConsistency, null, 2)
+      : '  (not available)',
+  );
+
   heading('Strategies');
   if (snap.instances.length === 0) console.log('  (none)');
   for (const i of snap.instances) {

@@ -54,6 +54,31 @@ The strategy `role` on the advance is a different thing again: it is an assignme
 naming who is recording the step. Omit it when this peer is the **recipient** filing a quote it
 was given; `targetTenantKey` is then the **issuer**.
 
+## Carriage: read the transport promise from the quote
+
+Every `oceanfreight`, `airfreight`, or `inland_transport` service may declare how its cargo is
+carried. Put `carriage` on that service in the offer spec. Do not put it on any other service key.
+
+| The quote says | `containerAllocation` | `vehicleType` | `vehicleAllocation` | `handlingMethod` |
+| --- | --- | --- | --- | --- |
+| FCL | `exclusive` | `vessel` | `shared` | `lift_on_lift_off` |
+| LCL | `shared` | `vessel` | `shared` | `lift_on_lift_off` |
+| Breakbulk | `none` | `vessel` | `shared` | `lift_on_lift_off` |
+| RoRo | `none` (or `exclusive` if boxed) | `vessel` | `exclusive` | `roll_on_roll_off` |
+| Air | *(omit)* | `plane` | `shared` | *(omit)* |
+| FTL | `none` | `truck` | `exclusive` | *(omit)* |
+| LTL | `none` | `truck` | `shared` | *(omit)* |
+| Container haulage | `exclusive` | `truck` | `exclusive` | *(omit)* |
+
+A quote that mixes FCL and LCL describes two services: their container-allocation promises differ.
+`containerAllocation` is absent for `plane` and present for every other vehicle. `handlingMethod`
+is present only for `vessel` and `barge`. The four value sets are hard-coded until Heroes publishes
+a carriage catalog; all other acceptance remains the server's decision.
+
+For an incoming request, run `service-status.ts <service-id>`. Read FCL/LCL/FTL/LTL from the
+returned `carriage` and inspect `carriageConsistency`; never guess from the service key or packaging
+text.
+
 ## Locations: the ends of the service, and the ports of the main leg
 
 Fetch `GET /catalog/location-roles`. Every `locations[].role` must be a returned `code`. Do not
@@ -136,7 +161,7 @@ enrolling, not inventing.
 
 1. `POST /journeys { "type": "OFFER" }` — **not idempotent**.
 2. `POST /services` per service, with `participantTenantKeys`, `locations`, `timeframes`,
-   `subtypes`.
+   `subtypes`, and optional `carriage` on transport services.
 3. `POST /journeys/{id}/strategy/advance` with `DIRECT_QUOTE` / `QUOTED` and the `offer_charges`
    payload, in one transactional call across every service of the journey.
 4. `POST /events/attachments` for the vendor PDF, against the `eventId` the advance returned.
@@ -161,8 +186,9 @@ filed quote, so an unknown outcome keeps everything and reports it instead.
 ## The offer spec
 
 `compose-offer.ts` takes one JSON file so no business value is ever interpolated into shell
-command text. Every controlled value in it is checked against the fetched catalogs before the
-first write.
+command text. Published controlled values are checked against fetched catalogs before the first
+write. Carriage is validated against its four server value sets locally until Heroes publishes a
+carriage catalog.
 
 ```json
 {
@@ -174,6 +200,12 @@ first write.
     {
       "rowId": "svc-1",
       "serviceKey": "oceanfreight",
+      "carriage": {
+        "containerAllocation": "exclusive",
+        "vehicleType": "vessel",
+        "vehicleAllocation": "shared",
+        "handlingMethod": "lift_on_lift_off"
+      },
       "locations": [
         { "code": "DELEV", "role": "origin", "sequence": 0 },
         { "code": "BEANR", "role": "port_of_loading", "sequence": 1 },
@@ -220,7 +252,9 @@ act on.
 | `4` | nothing | the spec, or the resume journey, was rejected before the first write |
 | `5` | nothing | `issuer_not_in_network` — the offering party has no Heroes tenant |
 | `6` | nothing | `issuer_recipient_write_unavailable` — the roles did not persist; the attempt was released |
-| `9` | nothing | a create or the advance was definitively rejected; what this run made is gone |
+| `9` | nothing | `CARRIAGE_NOT_ALLOWED` — carriage was rejected for that service key; what this run made is gone |
+| `9` | nothing | `CARRIAGE_REQUIRED` — enforcement requires carriage on that transport service; what this run made is gone |
+| `9` | nothing | another create or the advance was definitively rejected; what this run made is gone |
 | `7` | **maybe a journey** | `journey_create_unconfirmed` — its id was never seen |
 | `10` | **maybe an offer** | an outcome was lost, or a release did not finish; the ids are in the output |
 | `8` | the offer | `attachment_failed` — only the document is missing; re-attach with `upload-attachment.ts <event-id> <folder>` |
@@ -256,6 +290,7 @@ Hapag-Lloyd door quote `W241001250784`, Leverkusen door → Grand Cayman, via An
 quoted for three box sizes and stated as service 1 of 1:
 
 - One `OFFER` journey, one `oceanfreight` service.
+- Carriage: FCL — `{ "containerAllocation": "exclusive", "vehicleType": "vessel", "vehicleAllocation": "shared", "handlingMethod": "lift_on_lift_off" }`.
 - `subtypes: ["20DC", "40DC", "40HC"]` — one service, three covered sizes, not three services.
 - Locations:
 

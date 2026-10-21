@@ -48,6 +48,7 @@ import {
   type Config,
 } from './lib';
 import { existsSync, readFileSync } from 'node:fs';
+import { parseServiceCarriage, type Carriage } from './carriage';
 // One definition of what Heroes accepts. `isIsoDate` / `isIsoDateTime` mirror the
 // server's `z.iso.date()` / `z.iso.datetime()` — real calendar dates, and `Z` only,
 // because a numeric offset is rejected there.
@@ -79,6 +80,7 @@ interface SpecCharge {
 interface SpecService {
   rowId: string;
   serviceKey: string;
+  carriage?: Carriage;
   locations?: SpecLocation[];
   timeframes?: SpecTimeframe[];
   subtypes?: string[];
@@ -130,8 +132,10 @@ function refuse(code: number, reason: string, detail: Record<string, unknown> = 
 }
 
 /**
- * Structural validation only — every controlled value is checked against the
- * fetched Heroes catalogs afterwards, never against a list hard-coded here.
+ * Structural validation plus the service_carriage table constraints. All other
+ * controlled values are checked against fetched Heroes catalogs afterwards.
+ * Carriage is the one temporary exception because Heroes publishes no carriage
+ * catalog yet; its four value sets live in carriage.ts until that endpoint exists.
  */
 function readSpec(path: string): { spec?: OfferSpec; issues: string[] } {
   if (!existsSync(path)) return { issues: [`offer spec not found: ${path}`] };
@@ -181,6 +185,16 @@ function readSpec(path: string): { spec?: OfferSpec; issues: string[] } {
     else if (rowIds.has(raw.rowId)) issues.push(`${at}.rowId is not unique: ${raw.rowId}`);
     else rowIds.add(raw.rowId);
     if (!nonEmptyString(raw.serviceKey)) issues.push(`${at}.serviceKey is required`);
+
+    if (raw.carriage !== undefined) {
+      const parsedCarriage = parseServiceCarriage(
+        nonEmptyString(raw.serviceKey) ? raw.serviceKey : '',
+        raw.carriage,
+        `${at}.carriage`,
+      );
+      issues.push(...parsedCarriage.issues);
+      if (parsedCarriage.carriage) raw.carriage = parsedCarriage.carriage;
+    }
 
     for (const [locationIndex, location] of (Array.isArray(raw.locations) ? raw.locations : []).entries()) {
       const locationAt = `${at}.locations[${locationIndex}]`;
@@ -245,7 +259,7 @@ function readSpec(path: string): { spec?: OfferSpec; issues: string[] } {
 }
 
 // ---------------------------------------------------------------------------
-// Heroes catalogs — closed vocabularies, always fetched, never hard-coded
+// Heroes catalogs — all published closed vocabularies are fetched, never hard-coded
 // ---------------------------------------------------------------------------
 
 interface Catalogs {
@@ -423,6 +437,7 @@ export function serviceCreateBody(
         }
       : {}),
     ...(service.subtypes?.length ? { subtypes: service.subtypes } : {}),
+    ...(service.carriage ? { carriage: service.carriage } : {}),
   };
 }
 

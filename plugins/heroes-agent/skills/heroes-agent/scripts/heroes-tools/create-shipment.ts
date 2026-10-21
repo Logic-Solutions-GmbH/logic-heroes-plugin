@@ -8,7 +8,8 @@
  * Usage:
  *   npx tsx create-shipment.ts <payload-folder> --target <tenantKey> \
  *       --service-key <key> [--journey-id <id>] [--name <eventName>] \
- *       [--lo-code <UNLOCODE>] [--collaborator <tenantKey> ...]
+ *       [--lo-code <UNLOCODE>] [--carriage <json-file>] \
+ *       [--collaborator <tenantKey> ...]
  *
  * Example:
  *   npx tsx create-shipment.ts ./payloads/handshake/request-service \
@@ -22,12 +23,15 @@ import {
   flagValues,
   requireApiKey,
   api,
+  ApiError,
+  apiErrorCode,
   addServiceCollaborator,
   readPayloadFolder,
   createEventWithAttachment,
   heading,
   kv,
 } from './lib';
+import { readCarriageFile } from './carriage';
 
 run(async (config) => {
   const argv = process.argv.slice(2);
@@ -36,6 +40,7 @@ run(async (config) => {
   const target = flagString(flags, 'target');
   const existingJourneyId = flagString(flags, 'journey-id');
   const serviceKey = flagString(flags, 'service-key');
+  const carriagePath = flagString(flags, 'carriage');
   const name = flagString(flags, 'name') ?? 'Service Request';
   const loCode = flagString(flags, 'lo-code');
   const collaboratorKeys = flagValues(argv, 'collaborator').map((key) => key.trim());
@@ -46,6 +51,9 @@ run(async (config) => {
   if (!serviceKey?.trim()) {
     throw new Error('--service-key requires a value');
   }
+  if ('carriage' in flags && !carriagePath?.trim()) {
+    throw new Error('--carriage requires a JSON file');
+  }
   if (collaboratorKeys.some((key) => !key)) {
     throw new Error('--collaborator requires a value');
   }
@@ -53,14 +61,17 @@ run(async (config) => {
     throw new Error(
       'Usage: npx tsx create-shipment.ts <payload-folder> --target <tenantKey> ' +
         '--service-key <key> [--journey-id <id>] [--name <eventName>] ' +
-        '[--lo-code <UNLOCODE>] [--collaborator <tenantKey> ...]',
+        '[--lo-code <UNLOCODE>] [--carriage <json-file>] ' +
+        '[--collaborator <tenantKey> ...]',
     );
   }
 
+  const carriage = carriagePath ? readCarriageFile(carriagePath, serviceKey) : undefined;
   const apiKey = requireApiKey(config);
   const payload = readPayloadFolder(folder);
 
   let journeyId = existingJourneyId;
+  const createdJourney = !journeyId;
   if (journeyId) {
     heading('Using existing shipment journey');
   } else {
@@ -76,12 +87,39 @@ run(async (config) => {
   kv('journeyId', journeyId);
 
   heading('Creating service');
-  const service = await api<any>(config, {
-    method: 'POST',
-    path: '/services',
-    apiKey,
-    body: { serviceKey, journeyId },
-  });
+  let service: any;
+  try {
+    service = await api<any>(config, {
+      method: 'POST',
+      path: '/services',
+      apiKey,
+      body: { serviceKey, journeyId, ...(carriage ? { carriage } : {}) },
+    });
+  } catch (error) {
+    const code = apiErrorCode(error);
+    if (
+      error instanceof ApiError &&
+      error.status >= 400 &&
+      error.status < 500 &&
+      (code === 'CARRIAGE_NOT_ALLOWED' || code === 'CARRIAGE_REQUIRED')
+    ) {
+      let releasedJourney: string | null = null;
+      if (createdJourney) {
+        await api(config, { method: 'DELETE', path: `/journeys/${journeyId}`, apiKey });
+        releasedJourney = journeyId!;
+      }
+      console.log(JSON.stringify({
+        status: 'refused',
+        reason: code,
+        detail: error.message,
+        journeyId,
+        releasedJourney,
+      }, null, 2));
+      process.exitCode = 9;
+      return;
+    }
+    throw error;
+  }
   kv('serviceId', service.id);
   kv('serviceKey', serviceKey);
 

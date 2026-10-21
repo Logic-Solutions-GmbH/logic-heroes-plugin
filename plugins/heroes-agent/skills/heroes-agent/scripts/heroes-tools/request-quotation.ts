@@ -8,7 +8,7 @@
  * Usage:
  *   npx tsx request-quotation.ts <payload-folder> --target <tenantKey> \
  *       --service-key <key> [--journey-id <id>] [--name <eventName>] \
- *       [--lo-code <UNLOCODE>]
+ *       [--lo-code <UNLOCODE>] [--carriage <json-file>]
  *
  * Example:
  *   npx tsx request-quotation.ts ./intake --target schryver-mx \
@@ -20,11 +20,14 @@ import {
   flagString,
   requireApiKey,
   api,
+  ApiError,
+  apiErrorCode,
   readPayloadFolder,
   createEventWithAttachment,
   heading,
   kv,
 } from './lib';
+import { readCarriageFile } from './carriage';
 
 run(async (config) => {
   const { positional, flags } = parseArgs(process.argv.slice(2));
@@ -32,6 +35,7 @@ run(async (config) => {
   const target = flagString(flags, 'target');
   const existingJourneyId = flagString(flags, 'journey-id');
   const serviceKey = flagString(flags, 'service-key');
+  const carriagePath = flagString(flags, 'carriage');
   const name = flagString(flags, 'name') ?? 'Quotation Request';
   const loCode = flagString(flags, 'lo-code');
 
@@ -41,18 +45,23 @@ run(async (config) => {
   if (!serviceKey?.trim()) {
     throw new Error('--service-key requires a value');
   }
+  if ('carriage' in flags && !carriagePath?.trim()) {
+    throw new Error('--carriage requires a JSON file');
+  }
   if (!folder || !target) {
     throw new Error(
       'Usage: npx tsx request-quotation.ts <payload-folder> --target <tenantKey> ' +
         '--service-key <key> [--journey-id <id>] [--name <eventName>] ' +
-        '[--lo-code <UNLOCODE>]',
+        '[--lo-code <UNLOCODE>] [--carriage <json-file>]',
     );
   }
 
+  const carriage = carriagePath ? readCarriageFile(carriagePath, serviceKey) : undefined;
   const apiKey = requireApiKey(config);
   const payload = readPayloadFolder(folder);
 
   let journeyId = existingJourneyId;
+  const createdJourney = !journeyId;
   if (journeyId) {
     heading('Using existing shipment journey');
   } else {
@@ -68,12 +77,39 @@ run(async (config) => {
   kv('journeyId', journeyId);
 
   heading('Creating service');
-  const service = await api<any>(config, {
-    method: 'POST',
-    path: '/services',
-    apiKey,
-    body: { serviceKey, journeyId },
-  });
+  let service: any;
+  try {
+    service = await api<any>(config, {
+      method: 'POST',
+      path: '/services',
+      apiKey,
+      body: { serviceKey, journeyId, ...(carriage ? { carriage } : {}) },
+    });
+  } catch (error) {
+    const code = apiErrorCode(error);
+    if (
+      error instanceof ApiError &&
+      error.status >= 400 &&
+      error.status < 500 &&
+      (code === 'CARRIAGE_NOT_ALLOWED' || code === 'CARRIAGE_REQUIRED')
+    ) {
+      let releasedJourney: string | null = null;
+      if (createdJourney) {
+        await api(config, { method: 'DELETE', path: `/journeys/${journeyId}`, apiKey });
+        releasedJourney = journeyId!;
+      }
+      console.log(JSON.stringify({
+        status: 'refused',
+        reason: code,
+        detail: error.message,
+        journeyId,
+        releasedJourney,
+      }, null, 2));
+      process.exitCode = 9;
+      return;
+    }
+    throw error;
+  }
   kv('serviceId', service.id);
   kv('serviceKey', serviceKey);
 
