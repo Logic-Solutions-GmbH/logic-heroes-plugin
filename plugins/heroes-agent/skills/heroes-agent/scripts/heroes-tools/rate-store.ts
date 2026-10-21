@@ -4,7 +4,7 @@ import {
 import { dirname, join } from 'node:path';
 import { flagString } from './lib';
 import {
-  approveRateCard, discoverRate, importRateCsv, validateRateCatalog,
+  approveRateCard, discoverRate, importRateCsv, RATE_CONTRACT_VERSION, validateRateCatalog,
   type HeroesRateCatalog, type RateCatalog, type RateDiscovery, type RateDiscoveryQuery,
 } from './rate-contract';
 
@@ -46,7 +46,7 @@ function prepareIngestion(
   request: RateIngestRequest,
   approvedAt: string,
 ): PreparedIngestion {
-  if (existingCatalog.schemaVersion !== '1.0') {
+  if (!['1.0', RATE_CONTRACT_VERSION].includes(existingCatalog.schemaVersion)) {
     throw new Error(`Unsupported rate catalog version: ${existingCatalog.schemaVersion}`);
   }
   const imported = request.sources.map(({ sourceFile, csv }) =>
@@ -60,6 +60,7 @@ function prepareIngestion(
   }
 
   const catalog = structuredClone(existingCatalog);
+  catalog.schemaVersion = RATE_CONTRACT_VERSION;
   const ids = new Set(catalog.rateCards.map((card) => card.id));
   for (const batch of imported) for (const card of batch.rateCards) {
     if (ids.has(card.id)) throw new Error(`Duplicate rate card id: ${card.id}`);
@@ -101,7 +102,7 @@ export function createInMemoryRateStore(options: {
   now?: () => string;
 }): RateStore {
   let rateCatalog: RateCatalog = structuredClone(
-    options.initialCatalog ?? { schemaVersion: '1.0', rateCards: [] },
+    options.initialCatalog ?? { schemaVersion: RATE_CONTRACT_VERSION, rateCards: [] },
   );
   const now = options.now ?? (() => new Date().toISOString());
   return {
@@ -210,7 +211,7 @@ export function openRateStore(options: RateStoreOptions): RateStore {
       const heroesCatalog = JSON.parse(readFileSync(options.catalogPath, 'utf8')) as HeroesRateCatalog;
       const existingCatalog: RateCatalog = existsSync(options.indexPath)
         ? JSON.parse(readFileSync(options.indexPath, 'utf8'))
-        : { schemaVersion: '1.0', rateCards: [] };
+        : { schemaVersion: RATE_CONTRACT_VERSION, rateCards: [] };
       const prepared = prepareIngestion(existingCatalog, heroesCatalog, request, now());
       if (request.dryRun) return { ...prepared.result, committed: false };
 

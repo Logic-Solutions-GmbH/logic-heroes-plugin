@@ -130,7 +130,7 @@ test('operator snapshots Heroes rate catalogs through the current peer credentia
       { url: '/api/catalog/asset-subtypes?asset_type=container', apiKey: 'workspace-key' },
     ]);
     const snapshot = JSON.parse(readFileSync(output, 'utf8'));
-    assert.equal(snapshot.schemaVersion, '1.0');
+    assert.equal(snapshot.schemaVersion, '1.1');
     assert.deepEqual(snapshot.services.map((service: { serviceKey: string }) => service.serviceKey), [
       'airfreight',
       'oceanfreight',
@@ -354,7 +354,7 @@ test('operator imports diverse CSV rates into one versioned Heroes-shaped catalo
 
     assert.equal(result.code, 0, result.stderr || result.stdout);
     const rateCatalog = JSON.parse(readFileSync(indexPath, 'utf8'));
-    assert.equal(rateCatalog.schemaVersion, '1.0');
+    assert.equal(rateCatalog.schemaVersion, '1.1');
     assert.equal(rateCatalog.rateCards.length, 6);
     assert.deepEqual(
       rateCatalog.rateCards.map((card: { rules: { serviceKey: string }[] }) => card.rules[0].serviceKey).sort(),

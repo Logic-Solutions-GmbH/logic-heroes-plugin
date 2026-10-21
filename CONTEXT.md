@@ -36,7 +36,7 @@ One priced Heroes service with explicit applicability, charges, and conditions.
 _Avoid_: Service family
 
 **Applicability**:
-The Heroes-shaped facts that determine whether a rate rule applies. These facts include service, locations, timeframes, assets, participants, and strategy.
+The Heroes-shaped facts that determine whether a rate rule applies. These facts include service, locations, timeframes, assets, participants, strategy, and transport carriage.
 
 **Charge**:
 One monetary term with a charge key, currency, basis, flat or tiered amounts, and optional minimum and maximum.
