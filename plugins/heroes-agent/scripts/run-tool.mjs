@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 const [requested, ...args] = process.argv.slice(2);
 if (!requested || !/^[a-z][a-z0-9-]*\.ts$/.test(requested)) {
   console.error('Usage: node scripts/run-tool.mjs <tool-name.ts> [arguments]');
+  console.error('Catalog: node scripts/run-tool.mjs list-heroes-tools.ts [--json]');
   process.exit(2);
 }
 

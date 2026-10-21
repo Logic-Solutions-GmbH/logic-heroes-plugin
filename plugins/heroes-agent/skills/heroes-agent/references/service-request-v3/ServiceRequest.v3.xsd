@@ -1,0 +1,494 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Service Request XML v3 — GET /api/heroes/transportOrder (logic-core Development).
+
+  Default response root is ServiceRequest.
+  ?document=shipmentUpdate uses root ShipmentUpdate and omits ServiceRequested.
+
+  Emit order matches TransportOrderXmlBuilderService.
+  Empty values are omitted, so almost every element is minOccurs="0".
+  A valid instance may drop any of these nodes; this schema still lists them.
+
+  Two cargo shapes share CargoDetail:
+  - ServiceRequested (and a ShipmentUpdate leg that has no BL cargo):
+    nested children are another CargoDetail. Stackable is emitted.
+    DangerousGoods is either plain text (no document link) or DGD children.
+  - HBL merch and a Service that already has BL cargo:
+    nested children are CargoItemDetail. Stackable is not emitted.
+    DangerousGoods, when present, is a list of DGD.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           elementFormDefault="unqualified">
+
+  <xs:simpleType name="TransportModeType">
+    <xs:union>
+      <xs:simpleType>
+        <xs:restriction base="xs:string">
+          <xs:enumeration value="Sea"/>
+          <xs:enumeration value="Truck"/>
+          <xs:enumeration value="Air"/>
+          <xs:enumeration value="Rail"/>
+          <xs:enumeration value="Warehouse"/>
+        </xs:restriction>
+      </xs:simpleType>
+      <xs:simpleType>
+        <xs:restriction base="xs:string">
+          <xs:minLength value="1"/>
+        </xs:restriction>
+      </xs:simpleType>
+    </xs:union>
+  </xs:simpleType>
+
+  <xs:simpleType name="LoadTypeType">
+    <xs:union>
+      <xs:simpleType>
+        <xs:restriction base="xs:string">
+          <xs:enumeration value="FCL"/>
+          <xs:enumeration value="LCL"/>
+          <xs:enumeration value="LTL"/>
+        </xs:restriction>
+      </xs:simpleType>
+      <xs:simpleType>
+        <xs:restriction base="xs:string">
+          <xs:minLength value="1"/>
+        </xs:restriction>
+      </xs:simpleType>
+    </xs:union>
+  </xs:simpleType>
+
+  <xs:simpleType name="YesNoType">
+    <xs:union>
+      <xs:simpleType>
+        <xs:restriction base="xs:string">
+          <xs:enumeration value="Yes"/>
+          <xs:enumeration value="No"/>
+        </xs:restriction>
+      </xs:simpleType>
+      <xs:simpleType>
+        <xs:restriction base="xs:string"/>
+      </xs:simpleType>
+    </xs:union>
+  </xs:simpleType>
+
+  <!--
+    Line = paragraph fallback (company first when the builder has one).
+    Structured = asked tramo with a street (calle) plus the other
+    PICKUP_ADDRESS / DELIVERY_ADDRESS parts, including CountryCode.
+  -->
+  <xs:complexType name="AddressType">
+    <xs:choice>
+      <xs:element name="Line" type="xs:string" minOccurs="1" maxOccurs="unbounded"/>
+      <xs:sequence>
+        <xs:element name="Company" type="xs:string" minOccurs="0"/>
+        <xs:element name="Street" type="xs:string"/>
+        <xs:element name="PostalCode" type="xs:string" minOccurs="0"/>
+        <xs:element name="City" type="xs:string" minOccurs="0"/>
+        <xs:element name="State" type="xs:string" minOccurs="0"/>
+        <xs:element name="Country" type="xs:string" minOccurs="0"/>
+        <xs:element name="CountryCode" type="xs:string" minOccurs="0"/>
+      </xs:sequence>
+    </xs:choice>
+  </xs:complexType>
+
+  <xs:complexType name="StopType">
+    <xs:sequence>
+      <xs:element name="Company" type="xs:string" minOccurs="0"/>
+      <xs:element name="Address" type="AddressType" minOccurs="0"/>
+      <xs:element name="Reference" type="xs:string" minOccurs="0"/>
+      <xs:element name="Date" type="xs:string" minOccurs="0"/>
+      <xs:element name="TimeFrom" type="xs:string" minOccurs="0"/>
+      <xs:element name="TimeTo" type="xs:string" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="PartyType">
+    <xs:sequence>
+      <xs:element name="Name" type="xs:string" minOccurs="0"/>
+      <xs:element name="Address" type="AddressType" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="RequestedByType">
+    <xs:sequence>
+      <xs:element name="Name" type="xs:string" minOccurs="0"/>
+      <xs:element name="Email" type="xs:string" minOccurs="0"/>
+      <xs:element name="Phone" type="xs:string" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="IssuerType">
+    <xs:sequence>
+      <xs:element name="TenantKey" type="xs:string" minOccurs="0"/>
+      <xs:element name="Name" type="xs:string" minOccurs="0"/>
+      <xs:element name="RequestedBy" type="RequestedByType" minOccurs="0"/>
+      <xs:element name="OperationsContact" type="xs:string" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="PartnerType">
+    <xs:sequence>
+      <xs:element name="TenantKey" type="xs:string" minOccurs="0"/>
+      <xs:element name="Name" type="xs:string" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!--
+    Year, Client, Origin, Destination and CargoDescription are emitted
+    only on ShipmentUpdate. ServiceRequest stops at FinalDestination.
+  -->
+  <xs:complexType name="BookingType">
+    <xs:sequence>
+      <xs:element name="Reference" type="xs:string" minOccurs="0"/>
+      <xs:element name="JourneyID" type="xs:string" minOccurs="0"/>
+      <xs:element name="MainTransport" type="TransportModeType" minOccurs="0"/>
+      <xs:element name="OperationType" type="xs:string" minOccurs="0"/>
+      <xs:element name="OriginCountry" type="xs:string" minOccurs="0"/>
+      <xs:element name="DestinationCountry" type="xs:string" minOccurs="0"/>
+      <xs:element name="FinalDestination" type="xs:string" minOccurs="0"/>
+      <xs:element name="Year" type="xs:string" minOccurs="0"/>
+      <xs:element name="Client" type="xs:string" minOccurs="0"/>
+      <xs:element name="Origin" type="xs:string" minOccurs="0"/>
+      <xs:element name="Destination" type="xs:string" minOccurs="0"/>
+      <xs:element name="CargoDescription" type="xs:string" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="PartiesType">
+    <xs:sequence>
+      <xs:element name="Shipper" type="PartyType" minOccurs="0"/>
+      <xs:element name="Consignee" type="PartyType" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="ShipperReferenceType">
+    <xs:sequence>
+      <xs:element name="Line" type="xs:string" minOccurs="1" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="ReferencesType">
+    <xs:sequence>
+      <xs:element name="CarrierBooking" type="xs:string" minOccurs="0"/>
+      <xs:element name="TruckerQuotation" type="xs:string" minOccurs="0"/>
+      <xs:element name="ShipperReference" type="ShipperReferenceType" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!--
+    Plain text when the cargo line has no dangerous-goods document link.
+    DGD children when TRSch_MercanciaPeligrosaRelacion (or HBL merch) resolved a document.
+    The builder emits one of the two shapes, never both.
+  -->
+  <xs:complexType name="DangerousGoodsType" mixed="true">
+    <xs:sequence minOccurs="0">
+      <xs:element name="DGD" type="DgdType" minOccurs="1" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="DgdType">
+    <xs:sequence>
+      <xs:element name="UNNumber" type="xs:string" minOccurs="0"/>
+      <xs:element name="Class" type="xs:string" minOccurs="0"/>
+      <xs:element name="PackingGroup" type="xs:string" minOccurs="0"/>
+      <xs:element name="ProperShippingName" type="xs:string" minOccurs="0"/>
+      <xs:element name="MarinePollutant" type="xs:string" minOccurs="0"/>
+      <xs:element name="FlashPoint" type="xs:string" minOccurs="0"/>
+      <xs:element name="EMS" type="xs:string" minOccurs="0"/>
+      <xs:element name="Contact" type="xs:string" minOccurs="0"/>
+      <xs:element name="Phone" type="xs:string" minOccurs="0"/>
+      <xs:element name="NetWeight" type="xs:string" minOccurs="0"/>
+      <xs:element name="GrossWeight" type="xs:string" minOccurs="0"/>
+      <xs:element name="Pieces" type="xs:string" minOccurs="0"/>
+      <xs:element name="PackageCode" type="xs:string" minOccurs="0"/>
+      <xs:element name="PackageText" type="xs:string" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!--
+    One CargoDetail covers both shapes.
+    Nested CargoDetail = inner DetalleCarga on ServiceRequested.
+    CargoItemDetails = BL merch under an HBL or under a Service cargo line.
+  -->
+  <xs:complexType name="CargoDetailType">
+    <xs:sequence>
+      <xs:element name="Quantity" type="xs:string" minOccurs="0"/>
+      <xs:element name="PackagingType" type="xs:string" minOccurs="0"/>
+      <xs:element name="GrossWeight" type="xs:string" minOccurs="0"/>
+      <xs:element name="NetWeight" type="xs:string" minOccurs="0"/>
+      <xs:element name="Volume" type="xs:string" minOccurs="0"/>
+      <xs:element name="Dimensions" type="xs:string" minOccurs="0"/>
+      <xs:element name="Description" type="xs:string" minOccurs="0"/>
+      <xs:element name="Marks" type="xs:string" minOccurs="0"/>
+      <xs:element name="Stackable" type="YesNoType" minOccurs="0"/>
+      <xs:element name="DangerousGoods" type="DangerousGoodsType" minOccurs="0"/>
+      <xs:element name="ContainerNumber" type="xs:string" minOccurs="0"/>
+      <xs:element name="SealNumber" type="xs:string" minOccurs="0"/>
+      <xs:element name="TareWeight" type="xs:string" minOccurs="0"/>
+      <xs:element name="CargoDetail" type="CargoDetailType" minOccurs="0" maxOccurs="unbounded"/>
+      <xs:element name="CargoItemDetails" type="CargoItemDetailsType" minOccurs="0"/>
+    </xs:sequence>
+    <xs:attribute name="sequence" type="xs:positiveInteger" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="CargoDetailsType">
+    <xs:sequence>
+      <xs:element name="CargoDetail" type="CargoDetailType" minOccurs="1" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="CargoItemDetailType">
+    <xs:sequence>
+      <xs:element name="Quantity" type="xs:string" minOccurs="0"/>
+      <xs:element name="PackagingType" type="xs:string" minOccurs="0"/>
+      <xs:element name="GrossWeight" type="xs:string" minOccurs="0"/>
+      <xs:element name="NetWeight" type="xs:string" minOccurs="0"/>
+      <xs:element name="Volume" type="xs:string" minOccurs="0"/>
+      <xs:element name="Dimensions" type="xs:string" minOccurs="0"/>
+      <xs:element name="Description" type="xs:string" minOccurs="0"/>
+      <xs:element name="Marks" type="xs:string" minOccurs="0"/>
+      <xs:element name="DangerousGoods" type="DangerousGoodsType" minOccurs="0"/>
+      <xs:element name="ContainerNumber" type="xs:string" minOccurs="0"/>
+      <xs:element name="SealNumber" type="xs:string" minOccurs="0"/>
+      <xs:element name="TareWeight" type="xs:string" minOccurs="0"/>
+      <xs:element name="CargoItemDetails" type="CargoItemDetailsType" minOccurs="0"/>
+    </xs:sequence>
+    <xs:attribute name="sequence" type="xs:positiveInteger" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="CargoItemDetailsType">
+    <xs:sequence>
+      <xs:element name="CargoItemDetail" type="CargoItemDetailType" minOccurs="1" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!--
+    Asked tramo. POL/POD/Vessel/ETD/ETA only when Mode is Sea or Air.
+    Depot only when LoadType is FCL.
+  -->
+  <xs:complexType name="ServiceRequestedType">
+    <xs:sequence>
+      <xs:element name="ServiceID" type="xs:string" minOccurs="0"/>
+      <xs:element name="Key" type="xs:string" minOccurs="0"/>
+      <xs:element name="Mode" type="TransportModeType" minOccurs="0"/>
+      <xs:element name="LoadType" type="LoadTypeType" minOccurs="0"/>
+      <xs:element name="Pickup" type="StopType" minOccurs="0"/>
+      <xs:element name="Delivery" type="StopType" minOccurs="0"/>
+      <xs:element name="Depot" type="StopType" minOccurs="0"/>
+      <xs:element name="POLId" type="xs:string" minOccurs="0"/>
+      <xs:element name="POL" type="xs:string" minOccurs="0"/>
+      <xs:element name="POLLocode" type="xs:string" minOccurs="0"/>
+      <xs:element name="PODId" type="xs:string" minOccurs="0"/>
+      <xs:element name="POD" type="xs:string" minOccurs="0"/>
+      <xs:element name="PODLocode" type="xs:string" minOccurs="0"/>
+      <xs:element name="Vessel" type="xs:string" minOccurs="0"/>
+      <xs:element name="ETD" type="xs:string" minOccurs="0"/>
+      <xs:element name="ETA" type="xs:string" minOccurs="0"/>
+      <xs:element name="Provider" type="xs:string" minOccurs="0"/>
+      <xs:element name="TransportProviderId" type="xs:string" minOccurs="0"/>
+      <xs:element name="ExportDeclarationByTrucker" type="xs:string" minOccurs="0"/>
+      <xs:element name="TruckFreightRate" type="xs:string" minOccurs="0"/>
+      <xs:element name="FreeDays" type="xs:string" minOccurs="0"/>
+      <xs:element name="DeadlineCargo" type="xs:string" minOccurs="0"/>
+      <xs:element name="DeadlineDraft" type="xs:string" minOccurs="0"/>
+      <xs:element name="DeadlineVGM" type="xs:string" minOccurs="0"/>
+      <xs:element name="CargoDetails" type="CargoDetailsType" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!--
+    Tramo without tx_heroesServiceKey.
+    Voyage, Flight, BOL, MRN, ExportDeclarationByTrucker and Depot
+    are emitted only on ShipmentUpdate.
+    CargoDetails on a Route appears only on ShipmentUpdate, when the leg has no BL cargo.
+  -->
+  <xs:complexType name="RouteType">
+    <xs:sequence>
+      <xs:element name="Key" type="xs:string" minOccurs="0"/>
+      <xs:element name="Mode" type="TransportModeType" minOccurs="0"/>
+      <xs:element name="LoadType" type="LoadTypeType" minOccurs="0"/>
+      <xs:element name="MBL" type="xs:string" minOccurs="0"/>
+      <xs:element name="Pickup" type="StopType" minOccurs="0"/>
+      <xs:element name="Delivery" type="StopType" minOccurs="0"/>
+      <xs:element name="POLId" type="xs:string" minOccurs="0"/>
+      <xs:element name="POL" type="xs:string" minOccurs="0"/>
+      <xs:element name="POLLocode" type="xs:string" minOccurs="0"/>
+      <xs:element name="PODId" type="xs:string" minOccurs="0"/>
+      <xs:element name="POD" type="xs:string" minOccurs="0"/>
+      <xs:element name="PODLocode" type="xs:string" minOccurs="0"/>
+      <xs:element name="Vessel" type="xs:string" minOccurs="0"/>
+      <xs:element name="Provider" type="xs:string" minOccurs="0"/>
+      <xs:element name="ETD" type="xs:string" minOccurs="0"/>
+      <xs:element name="ETA" type="xs:string" minOccurs="0"/>
+      <xs:element name="TruckFreightRate" type="xs:string" minOccurs="0"/>
+      <xs:element name="FreeDays" type="xs:string" minOccurs="0"/>
+      <xs:element name="DeadlineCargo" type="xs:string" minOccurs="0"/>
+      <xs:element name="DeadlineDraft" type="xs:string" minOccurs="0"/>
+      <xs:element name="DeadlineVGM" type="xs:string" minOccurs="0"/>
+      <xs:element name="CarrierBooking" type="xs:string" minOccurs="0"/>
+      <xs:element name="TransportProviderId" type="xs:string" minOccurs="0"/>
+      <xs:element name="Voyage" type="xs:string" minOccurs="0"/>
+      <xs:element name="Flight" type="xs:string" minOccurs="0"/>
+      <xs:element name="BOL" type="xs:string" minOccurs="0"/>
+      <xs:element name="MRN" type="xs:string" minOccurs="0"/>
+      <xs:element name="ExportDeclarationByTrucker" type="xs:string" minOccurs="0"/>
+      <xs:element name="Depot" type="StopType" minOccurs="0"/>
+      <xs:element name="CargoDetails" type="CargoDetailsType" minOccurs="0"/>
+      <xs:element name="HBLs" type="HblsType" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- Tramo with tx_heroesServiceKey. Same body as Route, plus ServiceID. -->
+  <xs:complexType name="ServiceType">
+    <xs:sequence>
+      <xs:element name="ServiceID" type="xs:string" minOccurs="0"/>
+      <xs:element name="Key" type="xs:string" minOccurs="0"/>
+      <xs:element name="Mode" type="TransportModeType" minOccurs="0"/>
+      <xs:element name="LoadType" type="LoadTypeType" minOccurs="0"/>
+      <xs:element name="MBL" type="xs:string" minOccurs="0"/>
+      <xs:element name="Pickup" type="StopType" minOccurs="0"/>
+      <xs:element name="Delivery" type="StopType" minOccurs="0"/>
+      <xs:element name="POLId" type="xs:string" minOccurs="0"/>
+      <xs:element name="POL" type="xs:string" minOccurs="0"/>
+      <xs:element name="POLLocode" type="xs:string" minOccurs="0"/>
+      <xs:element name="PODId" type="xs:string" minOccurs="0"/>
+      <xs:element name="POD" type="xs:string" minOccurs="0"/>
+      <xs:element name="PODLocode" type="xs:string" minOccurs="0"/>
+      <xs:element name="Vessel" type="xs:string" minOccurs="0"/>
+      <xs:element name="Provider" type="xs:string" minOccurs="0"/>
+      <xs:element name="ETD" type="xs:string" minOccurs="0"/>
+      <xs:element name="ETA" type="xs:string" minOccurs="0"/>
+      <xs:element name="TruckFreightRate" type="xs:string" minOccurs="0"/>
+      <xs:element name="FreeDays" type="xs:string" minOccurs="0"/>
+      <xs:element name="DeadlineCargo" type="xs:string" minOccurs="0"/>
+      <xs:element name="DeadlineDraft" type="xs:string" minOccurs="0"/>
+      <xs:element name="DeadlineVGM" type="xs:string" minOccurs="0"/>
+      <xs:element name="CarrierBooking" type="xs:string" minOccurs="0"/>
+      <xs:element name="TransportProviderId" type="xs:string" minOccurs="0"/>
+      <xs:element name="Voyage" type="xs:string" minOccurs="0"/>
+      <xs:element name="Flight" type="xs:string" minOccurs="0"/>
+      <xs:element name="BOL" type="xs:string" minOccurs="0"/>
+      <xs:element name="MRN" type="xs:string" minOccurs="0"/>
+      <xs:element name="ExportDeclarationByTrucker" type="xs:string" minOccurs="0"/>
+      <xs:element name="Depot" type="StopType" minOccurs="0"/>
+      <xs:element name="CargoDetails" type="CargoDetailsType" minOccurs="0"/>
+      <xs:element name="HBLs" type="HblsType" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="RoutesType">
+    <xs:sequence>
+      <xs:element name="Route" type="RouteType" minOccurs="1" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="ServicesType">
+    <xs:sequence>
+      <xs:element name="Service" type="ServiceType" minOccurs="1" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="HblType">
+    <xs:sequence>
+      <xs:element name="Number" type="xs:string" minOccurs="0"/>
+      <xs:element name="CargoDetails" type="CargoDetailsType" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="HblsType">
+    <xs:sequence>
+      <xs:element name="HBL" type="HblType" minOccurs="1" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="TermsType">
+    <xs:sequence>
+      <xs:element name="Incoterm" type="xs:string" minOccurs="0"/>
+      <xs:element name="Insurance" type="xs:string" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="CommentsAndTermsType">
+    <xs:sequence>
+      <xs:element name="Comments" type="xs:string" minOccurs="0"/>
+      <xs:element name="TermsContent" type="xs:string" minOccurs="0"/>
+    </xs:sequence>
+    <xs:attribute name="language" type="xs:string" use="optional"/>
+  </xs:complexType>
+
+  <xs:complexType name="UbicacionType">
+    <xs:sequence>
+      <xs:element name="Contacto" type="xs:string" minOccurs="0"/>
+      <xs:element name="Telefono" type="xs:string" minOccurs="0"/>
+      <xs:element name="NombreComercial" type="xs:string" minOccurs="0"/>
+      <xs:element name="TaxId" type="xs:string" minOccurs="0"/>
+      <xs:element name="Direccion" type="xs:string" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="UbicacionesType">
+    <xs:sequence>
+      <xs:element name="Origen" type="UbicacionType" minOccurs="0"/>
+      <xs:element name="Destino" type="UbicacionType" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="MaterialPeligrosoType">
+    <xs:sequence>
+      <xs:element name="NumeroUN" type="xs:string" minOccurs="0"/>
+      <xs:element name="TipoEmbalaje" type="xs:string" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="MercanciaType">
+    <xs:sequence>
+      <xs:element name="ClaveProducto" type="xs:string" minOccurs="0"/>
+      <xs:element name="DescripcionSAT" type="xs:string" minOccurs="0"/>
+      <xs:element name="UnidadMedida" type="xs:string" minOccurs="0"/>
+      <xs:element name="FraccionArancelaria" type="xs:string" minOccurs="0"/>
+      <xs:element name="Pedimento" type="xs:string" minOccurs="0"/>
+      <xs:element name="MaterialPeligroso" type="MaterialPeligrosoType" minOccurs="0"/>
+      <xs:element name="FolioFiscal" type="xs:string" minOccurs="0"/>
+    </xs:sequence>
+    <xs:attribute name="detalleCargaId" type="xs:int" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="MercanciasType">
+    <xs:sequence>
+      <xs:element name="Mercancia" type="MercanciaType" minOccurs="1" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="CartaPorteType">
+    <xs:sequence>
+      <xs:element name="Ubicaciones" type="UbicacionesType" minOccurs="0"/>
+      <xs:element name="ReferenciaCotizacion" type="xs:string" minOccurs="0"/>
+      <xs:element name="InstruccionesEspeciales" type="xs:string" minOccurs="0"/>
+      <xs:element name="Mercancias" type="MercanciasType" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="ServiceRequestBodyType">
+    <xs:sequence>
+      <xs:element name="Booking" type="BookingType" minOccurs="0"/>
+      <xs:element name="Issuer" type="IssuerType" minOccurs="0"/>
+      <xs:element name="Partner" type="PartnerType" minOccurs="0"/>
+      <xs:element name="DirectedTo" type="xs:string" minOccurs="0"/>
+      <xs:element name="Parties" type="PartiesType" minOccurs="0"/>
+      <xs:element name="References" type="ReferencesType" minOccurs="0"/>
+      <xs:element name="ServiceRequested" type="ServiceRequestedType" minOccurs="0"/>
+      <xs:element name="Routes" type="RoutesType" minOccurs="0"/>
+      <xs:element name="Services" type="ServicesType" minOccurs="0"/>
+      <xs:element name="Terms" type="TermsType" minOccurs="0"/>
+      <xs:element name="CommentsAndTerms" type="CommentsAndTermsType" minOccurs="0"/>
+      <xs:element name="CartaPorte" type="CartaPorteType" minOccurs="0"/>
+    </xs:sequence>
+    <xs:attribute name="version" type="xs:string" use="required"/>
+    <xs:attribute name="language" type="xs:string" use="optional"/>
+    <xs:anyAttribute namespace="http://www.w3.org/2001/XMLSchema-instance" processContents="lax"/>
+  </xs:complexType>
+
+  <xs:element name="ServiceRequest" type="ServiceRequestBodyType"/>
+
+  <!-- Same body. The builder omits ServiceRequested on this root. -->
+  <xs:element name="ShipmentUpdate" type="ServiceRequestBodyType"/>
+</xs:schema>
