@@ -95,7 +95,7 @@ test('operator snapshots Heroes rate catalogs through the current peer credentia
         { code: 'departure_window', name: 'Departure window', description: 'Planned departure' },
       ] } }));
     } else if (request.url === '/api/catalog/services') {
-      response.end(JSON.stringify({ data: [{ serviceKey: 'fcl_freight_forwarding' }, { serviceKey: 'airfreight' }] }));
+      response.end(JSON.stringify({ data: [{ serviceKey: 'oceanfreight' }, { serviceKey: 'airfreight' }] }));
     } else if (request.url === '/api/catalog/asset-types') {
       response.end(JSON.stringify({ data: { asset_types: [{ code: 'container', name: 'Container', description: null }] } }));
     } else if (request.url === '/api/catalog/asset-subtypes?asset_type=container') {
@@ -133,7 +133,7 @@ test('operator snapshots Heroes rate catalogs through the current peer credentia
     assert.equal(snapshot.schemaVersion, '1.0');
     assert.deepEqual(snapshot.services.map((service: { serviceKey: string }) => service.serviceKey), [
       'airfreight',
-      'fcl_freight_forwarding',
+      'oceanfreight',
     ]);
     assert.deepEqual(snapshot.assetTypes, [{ code: 'container' }]);
     assert.deepEqual(snapshot.assetSubtypes, [{ assetType: 'container', subtype: '40HC' }]);
@@ -171,7 +171,7 @@ test('rate import completes an interrupted archive transaction on the next run',
     const catalogPath = join(workspace, 'heroes-catalog.json');
     writeHeroesCatalog(catalogPath, {
       schemaVersion: '1.0', fetchedAt: '2026-08-13T00:00:00Z', ...catalogVocabulary,
-      services: [{ serviceKey: 'fcl_freight_forwarding' }], assetTypes: [{ code: 'container' }],
+      services: [{ serviceKey: 'oceanfreight' }], assetTypes: [{ code: 'container' }],
       assetSubtypes: [
         { assetType: 'container', subtype: '40HC' },
         { assetType: 'container', subtype: '40DC' },
@@ -248,13 +248,13 @@ test('stale approved cards do not block discovery or a new rate import', async (
     const catalogPath = join(workspace, 'heroes-catalog.json');
     const currentHash = writeHeroesCatalog(catalogPath, {
       schemaVersion: '1.0', fetchedAt: '2026-08-13T00:00:00Z', ...catalogVocabulary,
-      services: [{ serviceKey: 'fcl_freight_forwarding' }], assetTypes: [{ code: 'container' }],
+      services: [{ serviceKey: 'oceanfreight' }], assetTypes: [{ code: 'container' }],
       assetSubtypes: [{ assetType: 'container', subtype: '40HC' }],
     });
     const staleCard = sealedCard({
       id: 'stale-card', journeyType: 'OFFER',
       rules: [{
-        id: 'stale-rule', serviceKey: 'fcl_freight_forwarding',
+        id: 'stale-rule', serviceKey: 'oceanfreight',
         locodes: [{ code: 'NLRTM', role: 'origin' }],
         timeframes: [{ from: '2026-08-01', to: '2026-12-31' }],
         assetTypes: [{ type: 'container', subtypes: ['40HC'] }], participants: [], strategy: null,
@@ -268,7 +268,7 @@ test('stale approved cards do not block discovery or a new rate import', async (
     writeFileSync(indexPath, JSON.stringify({ schemaVersion: '1.0', rateCards: [staleCard] }));
 
     const discovery = await runTool(workspace, [
-      'find-rate.ts', '--service-key', 'fcl_freight_forwarding', '--origin', 'NLRTM',
+      'find-rate.ts', '--service-key', 'oceanfreight', '--origin', 'NLRTM',
       '--asset-type', 'container', '--asset-subtype', '40HC',
       '--index', indexPath, '--catalog', catalogPath, '--json',
     ]);
@@ -279,7 +279,7 @@ test('stale approved cards do not block discovery or a new rate import', async (
     mkdirSync(inbox);
     writeFileSync(join(inbox, 'new.csv'), [
       'cardId,ruleId,serviceKey,origin,assetType,assetSubtype,validFrom,validTo,chargeKey,amount,currency,basis,sourceRef,approvalStatus,approvedBy,approvedAt',
-      'current-card,current-rule,fcl_freight_forwarding,NLRTM,container,40HC,2026-08-01,2026-12-31,freight,120,USD,container,NEW,draft,,,',
+      'current-card,current-rule,oceanfreight,NLRTM,container,40HC,2026-08-01,2026-12-31,freight,120,USD,container,NEW,draft,,,',
     ].join('\n'));
     const imported = await runTool(workspace, [
       'ingest-rates.ts', inbox, '--catalog', catalogPath, '--index', indexPath,
@@ -292,7 +292,7 @@ test('stale approved cards do not block discovery or a new rate import', async (
     assert.equal(cards[0].catalogReference.responseHash, currentHash);
 
     const draftOnly = await runTool(workspace, [
-      'find-rate.ts', '--service-key', 'fcl_freight_forwarding', '--origin', 'NLRTM',
+      'find-rate.ts', '--service-key', 'oceanfreight', '--origin', 'NLRTM',
       '--asset-type', 'container', '--asset-subtype', '40HC',
       '--index', indexPath, '--catalog', catalogPath, '--json',
     ]);
@@ -325,8 +325,8 @@ test('operator imports diverse CSV rates into one versioned Heroes-shaped catalo
       fetchedAt: '2026-08-13T00:00:00Z',
       ...catalogVocabulary,
       services: [
-        'fcl_freight_forwarding', 'freight_forwarding', 'airfreight',
-        'ltl_pickup_origin', 'import_fcl_forwarding', 'intrahouse_handling',
+        'oceanfreight', 'freight_forwarding', 'airfreight',
+        'inland_transport', 'import_fcl_forwarding', 'intrahouse_handling',
       ].map((serviceKey) => ({ serviceKey })),
       assetTypes: [
         'container', 'cargo', 'mawb', 'truck', 'port_order', 'pallet',
@@ -337,10 +337,10 @@ test('operator imports diverse CSV rates into one versioned Heroes-shaped catalo
       join(inbox, 'diverse-rates.csv'),
       [
         'cardId,ruleId,serviceKey,origin,destination,locationCode,locationRole,assetType,assetSubtype,validFrom,validTo,chargeKey,amount,currency,basis,sourceRef,approvalStatus,approvedBy,approvedAt',
-        'fcl-1,fcl-rule,fcl_freight_forwarding,NLRTM,USNYC,,,container,40HC,2026-08-01,2026-12-31,ocean-freight,8000,USD,container,FCL-1,draft,,,',
+        'fcl-1,fcl-rule,oceanfreight,NLRTM,USNYC,,,container,40HC,2026-08-01,2026-12-31,ocean-freight,8000,USD,container,FCL-1,draft,,,',
         'lcl-1,lcl-rule,freight_forwarding,NLRTM,SGSIN,,,cargo,,2026-08-01,2026-12-31,ocean-freight,90,USD,cbm,LCL-1,draft,,,',
         'air-1,air-rule,airfreight,DEHAM,USJFK,,,mawb,,2026-08-01,2026-12-31,air-freight,4.5,EUR,chargeable-kg,AIR-1,draft,,,',
-        'road-1,road-rule,ltl_pickup_origin,DEHAM,DEBER,,,truck,,2026-08-01,2026-12-31,linehaul,900,EUR,shipment,ROAD-1,draft,,,',
+        'road-1,road-rule,inland_transport,DEHAM,DEBER,,,truck,,2026-08-01,2026-12-31,linehaul,900,EUR,shipment,ROAD-1,draft,,,',
         'customs-1,customs-rule,import_fcl_forwarding,,,,,,,2026-08-01,2026-12-31,customs-clearance,75,EUR,customs-entry,CUSTOMS-1,draft,,,',
         'storage-1,storage-rule,intrahouse_handling,,,DEHAM,warehouse,pallet,,2026-08-01,2026-12-31,storage,12,EUR,pallet-day,STORAGE-1,draft,,,',
       ].join('\n') + '\n',
@@ -358,7 +358,7 @@ test('operator imports diverse CSV rates into one versioned Heroes-shaped catalo
     assert.equal(rateCatalog.rateCards.length, 6);
     assert.deepEqual(
       rateCatalog.rateCards.map((card: { rules: { serviceKey: string }[] }) => card.rules[0].serviceKey).sort(),
-      ['airfreight', 'fcl_freight_forwarding', 'freight_forwarding', 'import_fcl_forwarding', 'intrahouse_handling', 'ltl_pickup_origin'],
+      ['airfreight', 'freight_forwarding', 'import_fcl_forwarding', 'inland_transport', 'intrahouse_handling', 'oceanfreight'],
     );
     const fcl = rateCatalog.rateCards.find((card: { id: string }) => card.id === 'fcl-1');
     assert.deepEqual(fcl.rules[0].locodes, [
@@ -372,10 +372,10 @@ test('operator imports diverse CSV rates into one versioned Heroes-shaped catalo
     assert.equal(fcl.approval.status, 'approved');
 
     const queries = [
-      ['fcl_freight_forwarding', '--origin', 'NLRTM', '--dest', 'USNYC', '--asset-type', 'container', '--asset-subtype', '40HC'],
+      ['oceanfreight', '--origin', 'NLRTM', '--dest', 'USNYC', '--asset-type', 'container', '--asset-subtype', '40HC'],
       ['freight_forwarding', '--origin', 'NLRTM', '--dest', 'SGSIN', '--asset-type', 'cargo'],
       ['airfreight', '--origin', 'DEHAM', '--dest', 'USJFK', '--asset-type', 'mawb'],
-      ['ltl_pickup_origin', '--origin', 'DEHAM', '--dest', 'DEBER', '--asset-type', 'truck'],
+      ['inland_transport', '--origin', 'DEHAM', '--dest', 'DEBER', '--asset-type', 'truck'],
       [
         'import_fcl_forwarding', '--asset', 'truck', '--location', 'DEHAM:depot',
         '--participant', 'other:assignee', '--strategy', 'OFFER', '--strategy-step', 'PUBLISHED',
@@ -401,14 +401,14 @@ test('operator imports diverse CSV rates into one versioned Heroes-shaped catalo
       ['--origin', 'NLRTM', '--dest', 'USNYC', '--asset-type', 'container', '--asset-subtype', '40HC', '--date', '2027-01-01'],
     ]) {
       const mismatch = await runTool(workspace, [
-        'find-rate.ts', '--service-key', 'fcl_freight_forwarding', ...mismatchArgs,
+        'find-rate.ts', '--service-key', 'oceanfreight', ...mismatchArgs,
         '--index', indexPath, '--catalog', catalogPath, '--json',
       ]);
       assert.equal(mismatch.code, 3, mismatch.stderr || mismatch.stdout);
       assert.equal(JSON.parse(mismatch.stdout).status, 'none');
     }
     const invalidQuery = await runTool(workspace, [
-      'find-rate.ts', '--service-key', 'fcl_freight_forwarding', '--location', 'NLRTM:invented',
+      'find-rate.ts', '--service-key', 'oceanfreight', '--location', 'NLRTM:invented',
       '--date', '2026-99-01', '--asset-type', 'container', '--asset-subtype', '40HC',
       '--index', indexPath, '--catalog', catalogPath, '--json',
     ]);
@@ -416,7 +416,7 @@ test('operator imports diverse CSV rates into one versioned Heroes-shaped catalo
     assert.match(JSON.parse(invalidQuery.stdout).reason, /unknown Heroes location role invented/);
     assert.match(JSON.parse(invalidQuery.stdout).reason, /invalid timeframe from 2026-99-01/);
     const orphanSubtype = await runTool(workspace, [
-      'find-rate.ts', '--service-key', 'fcl_freight_forwarding', '--origin', 'NLRTM',
+      'find-rate.ts', '--service-key', 'oceanfreight', '--origin', 'NLRTM',
       '--asset-subtype', '40HC', '--index', indexPath, '--catalog', catalogPath, '--json',
     ]);
     assert.equal(orphanSubtype.code, 4, orphanSubtype.stderr || orphanSubtype.stdout);
@@ -426,8 +426,8 @@ test('operator imports diverse CSV rates into one versioned Heroes-shaped catalo
     mkdirSync(conflictInbox);
     writeFileSync(join(conflictInbox, 'conflict.csv'), [
       'cardId,ruleId,serviceKey,origin,destination,assetType,validFrom,validTo,chargeKey,amount,currency,basis,sourceRef,approvalStatus,approvedBy,approvedAt',
-      'conflict-card,conflict-rule,fcl_freight_forwarding,NLRTM,USNYC,container,2026-08-01,2026-12-31,freight,10,USD,container,REF-A,draft,,',
-      'conflict-card,conflict-rule,fcl_freight_forwarding,NLRTM,USNYC,container,2026-08-01,2026-12-31,documentation,1,USD,document,REF-B,draft,,',
+      'conflict-card,conflict-rule,oceanfreight,NLRTM,USNYC,container,2026-08-01,2026-12-31,freight,10,USD,container,REF-A,draft,,',
+      'conflict-card,conflict-rule,oceanfreight,NLRTM,USNYC,container,2026-08-01,2026-12-31,documentation,1,USD,document,REF-B,draft,,',
     ].join('\n'));
     const conflict = await runTool(workspace, [
       'ingest-rates.ts', conflictInbox, '--catalog', catalogPath, '--index', indexPath,
@@ -441,7 +441,7 @@ test('operator imports diverse CSV rates into one versioned Heroes-shaped catalo
     const collisionName = 'collision.csv';
     writeFileSync(join(collisionInbox, collisionName), [
       'cardId,ruleId,serviceKey,origin,destination,assetType,validFrom,validTo,chargeKey,amount,currency,basis,sourceRef,approvalStatus,approvedBy,approvedAt',
-      'collision-card,collision-rule,fcl_freight_forwarding,NLRTM,USNYC,container,2026-08-01,2026-12-31,freight,10,USD,container,REF-C,draft,,',
+      'collision-card,collision-rule,oceanfreight,NLRTM,USNYC,container,2026-08-01,2026-12-31,freight,10,USD,container,REF-C,draft,,',
     ].join('\n'));
     writeFileSync(join(processed, collisionName), 'existing evidence');
     const beforeCollision = readFileSync(indexPath, 'utf8');
@@ -458,7 +458,7 @@ test('operator imports diverse CSV rates into one versioned Heroes-shaped catalo
     tampered.services.push({ serviceKey: 'invented-service' });
     writeFileSync(catalogPath, JSON.stringify(tampered));
     const tamperedResult = await runTool(workspace, [
-      'find-rate.ts', '--service-key', 'fcl_freight_forwarding', '--origin', 'NLRTM',
+      'find-rate.ts', '--service-key', 'oceanfreight', '--origin', 'NLRTM',
       '--index', indexPath, '--catalog', catalogPath, '--json',
     ]);
     assert.equal(tamperedResult.code, 4, tamperedResult.stderr || tamperedResult.stdout);
@@ -475,12 +475,12 @@ test('rate discovery blocks two approved applicable rules instead of choosing th
     const responseHash = writeHeroesCatalog(catalogPath, {
       schemaVersion: '1.0', fetchedAt: '2026-08-13T00:00:00Z',
       ...catalogVocabulary,
-      services: [{ serviceKey: 'fcl_freight_forwarding' }],
+      services: [{ serviceKey: 'oceanfreight' }],
       assetTypes: [{ code: 'container' }],
       assetSubtypes: [{ assetType: 'container', subtype: '40HC' }],
     });
     const rule = (id: string, amount: string) => ({
-      id: `${id}-rule`, serviceKey: 'fcl_freight_forwarding',
+      id: `${id}-rule`, serviceKey: 'oceanfreight',
       locodes: [{ code: 'NLRTM', role: 'origin' }, { code: 'USNYC', role: 'destination' }],
       timeframes: [{ from: '2026-08-01', to: '2026-12-31' }],
       assetTypes: [{ type: 'container', subtypes: ['40HC'] }],
@@ -498,7 +498,7 @@ test('rate discovery blocks two approved applicable rules instead of choosing th
     writeFileSync(indexPath, JSON.stringify({ schemaVersion: '1.0', rateCards: [card('filed-a', '8000'), card('filed-b', '7900')] }));
 
     const result = await runTool(workspace, [
-      'find-rate.ts', '--service-key', 'fcl_freight_forwarding', '--origin', 'NLRTM', '--dest', 'USNYC',
+      'find-rate.ts', '--service-key', 'oceanfreight', '--origin', 'NLRTM', '--dest', 'USNYC',
       '--asset-type', 'container', '--asset-subtype', '40HC', '--date', '2026-09-01',
       '--index', indexPath, '--catalog', catalogPath, '--json',
     ]);
@@ -518,7 +518,7 @@ test('rate discovery blocks two approved applicable rules instead of choosing th
       schemaVersion: '1.0', rateCards: [card('filed-a', '8000'), conditional],
     }));
     const unresolved = await runTool(workspace, [
-      'find-rate.ts', '--service-key', 'fcl_freight_forwarding',
+      'find-rate.ts', '--service-key', 'oceanfreight',
       '--origin', 'NLRTM', '--dest', 'USNYC', '--asset-type', 'container',
       '--asset-subtype', '40HC', '--date', '2026-09-01',
       '--index', indexPath, '--catalog', catalogPath, '--json',
@@ -537,7 +537,7 @@ test('rate discovery blocks two approved applicable rules instead of choosing th
       schemaVersion: '1.0', rateCards: [...draftCards, ...approvedCards],
     }));
     const bounded = await runTool(workspace, [
-      'find-rate.ts', '--service-key', 'fcl_freight_forwarding', '--origin', 'NLRTM', '--dest', 'USNYC',
+      'find-rate.ts', '--service-key', 'oceanfreight', '--origin', 'NLRTM', '--dest', 'USNYC',
       '--asset-type', 'container', '--asset-subtype', '40HC', '--date', '2026-09-01',
       '--index', indexPath, '--catalog', catalogPath, '--json',
     ]);
@@ -572,7 +572,7 @@ test('rate import rejects a CSV with no rate rows and keeps its source recoverab
     writeHeroesCatalog(catalogPath, {
       schemaVersion: '1.0', fetchedAt: '2026-08-13T00:00:00Z',
       ...catalogVocabulary,
-      services: [{ serviceKey: 'fcl_freight_forwarding' }],
+      services: [{ serviceKey: 'oceanfreight' }],
       assetTypes: [{ code: 'container' }],
       assetSubtypes: [{ assetType: 'container', subtype: '40HC' }],
     });
@@ -601,7 +601,7 @@ test('rate import rejects a CSV with no rate rows and keeps its source recoverab
       source,
       [
         'cardId,ruleId,serviceKey,origin,destination,assetType,chargeKey,amount,currency,basis,sourceRef,approvalStatus',
-        '"card-1,rule-1,fcl_freight_forwarding,NLRTM,USNYC,container,freight,8000,USD,container,REF-1,draft',
+        '"card-1,rule-1,oceanfreight,NLRTM,USNYC,container,freight,8000,USD,container,REF-1,draft',
       ].join('\n'),
     );
     const malformed = await runTool(workspace, [
@@ -625,14 +625,14 @@ test('rate rules require at least one validity timeframe in canonical JSON and C
     const responseHash = writeHeroesCatalog(catalogPath, {
       schemaVersion: '1.0', fetchedAt: '2026-08-13T00:00:00Z',
       ...catalogVocabulary,
-      services: [{ serviceKey: 'fcl_freight_forwarding' }],
+      services: [{ serviceKey: 'oceanfreight' }],
       assetTypes: [{ code: 'container' }],
       assetSubtypes: [{ assetType: 'container', subtype: '40HC' }],
     });
     const card = sealedCard({
       id: 'no-validity', journeyType: 'OFFER',
       rules: [{
-        id: 'no-validity-rule', serviceKey: 'fcl_freight_forwarding',
+        id: 'no-validity-rule', serviceKey: 'oceanfreight',
         locodes: [{ code: 'NLRTM', role: 'origin' }], timeframes: [],
         assetTypes: [{ type: 'container', subtypes: ['40HC'] }], participants: [], strategy: null,
         charges: [{ chargeKey: 'freight', amount: '100', currency: 'USD', basis: 'container' }], conditions: [],
@@ -645,7 +645,7 @@ test('rate rules require at least one validity timeframe in canonical JSON and C
     writeFileSync(indexPath, JSON.stringify({ schemaVersion: '1.0', rateCards: [card] }));
 
     const discovery = await runTool(workspace, [
-      'find-rate.ts', '--service-key', 'fcl_freight_forwarding', '--origin', 'NLRTM',
+      'find-rate.ts', '--service-key', 'oceanfreight', '--origin', 'NLRTM',
       '--asset-type', 'container', '--asset-subtype', '40HC',
       '--index', indexPath, '--catalog', catalogPath, '--json',
     ]);
@@ -657,7 +657,7 @@ test('rate rules require at least one validity timeframe in canonical JSON and C
     const source = join(inbox, 'missing-validity.csv');
     writeFileSync(source, [
       'cardId,ruleId,serviceKey,origin,assetType,assetSubtype,validFrom,validTo,chargeKey,amount,currency,basis,sourceRef,approvalStatus',
-      'card-1,rule-1,fcl_freight_forwarding,NLRTM,container,40HC,,,freight,100,USD,container,ROW-2,draft',
+      'card-1,rule-1,oceanfreight,NLRTM,container,40HC,,,freight,100,USD,container,ROW-2,draft',
     ].join('\n'));
     const imported = await runTool(workspace, [
       'ingest-rates.ts', inbox, '--catalog', catalogPath, '--index', join(workspace, 'imported.json'),
@@ -678,7 +678,7 @@ test('rate import dry-run writes nothing and duplicate retries keep their source
     writeHeroesCatalog(catalogPath, {
       schemaVersion: '1.0', fetchedAt: '2026-08-13T00:00:00Z',
       ...catalogVocabulary,
-      services: [{ serviceKey: 'fcl_freight_forwarding' }],
+      services: [{ serviceKey: 'oceanfreight' }],
       assetTypes: [{ code: 'container' }],
       assetSubtypes: [{ assetType: 'container', subtype: '40HC' }],
     });
@@ -689,7 +689,7 @@ test('rate import dry-run writes nothing and duplicate retries keep their source
     const source = join(inbox, 'rates.csv');
     const csv = [
       'cardId,ruleId,serviceKey,origin,destination,assetType,assetSubtype,validFrom,validTo,chargeKey,amount,currency,basis,sourceRef,approvalStatus,approvedBy,approvedAt',
-      'card-1,rule-1,fcl_freight_forwarding,NLRTM,USNYC,container,40HC,2026-08-01,2026-12-31,freight,8000,USD,container,REF-1,draft,,,',
+      'card-1,rule-1,oceanfreight,NLRTM,USNYC,container,40HC,2026-08-01,2026-12-31,freight,8000,USD,container,REF-1,draft,,,',
     ].join('\n');
     writeFileSync(source, csv);
 
@@ -732,7 +732,7 @@ test('rate import keeps its source recoverable when the index cannot be written'
     writeHeroesCatalog(catalogPath, {
       schemaVersion: '1.0', fetchedAt: '2026-08-13T00:00:00Z',
       ...catalogVocabulary,
-      services: [{ serviceKey: 'fcl_freight_forwarding' }],
+      services: [{ serviceKey: 'oceanfreight' }],
       assetTypes: [{ code: 'container' }],
       assetSubtypes: [{ assetType: 'container', subtype: '40HC' }],
     });
@@ -742,7 +742,7 @@ test('rate import keeps its source recoverable when the index cannot be written'
     const source = join(inbox, 'rates.csv');
     writeFileSync(source, [
       'cardId,ruleId,serviceKey,origin,destination,assetType,assetSubtype,validFrom,validTo,chargeKey,amount,currency,basis,sourceRef,approvalStatus',
-      'card-1,rule-1,fcl_freight_forwarding,NLRTM,USNYC,container,40HC,2026-08-01,2026-12-31,freight,8000,USD,container,REF-1,draft',
+      'card-1,rule-1,oceanfreight,NLRTM,USNYC,container,40HC,2026-08-01,2026-12-31,freight,8000,USD,container,REF-1,draft',
     ].join('\n'));
     const blockedParent = join(workspace, 'not-a-directory');
     writeFileSync(blockedParent, 'blocks index directory creation');
@@ -764,7 +764,7 @@ test('rate discovery returns exit 2 when its configured store is missing', async
   const workspace = mkdtempSync(join(tmpdir(), 'heroes-rate-no-store-'));
   try {
     const result = await runTool(workspace, [
-      'find-rate.ts', '--service-key', 'fcl_freight_forwarding',
+      'find-rate.ts', '--service-key', 'oceanfreight',
       '--index', join(workspace, 'missing-rate-catalog.json'),
       '--catalog', join(workspace, 'missing-heroes-catalog.json'), '--json',
     ]);
@@ -836,7 +836,7 @@ test('rate discovery returns invalid exit 4 for malformed canonical JSON', async
     const catalogPath = join(workspace, 'heroes-catalog.json');
     writeHeroesCatalog(catalogPath, {
       schemaVersion: '1.0', fetchedAt: '2026-08-13T00:00:00Z',
-      openApiVersion: '0.1.test', services: [{ serviceKey: 'fcl_freight_forwarding' }],
+      openApiVersion: '0.1.test', services: [{ serviceKey: 'oceanfreight' }],
       assetTypes: [{ code: 'container' }], assetSubtypes: [],
       locationRoles: ['origin'], timeframeKinds: ['validity'], participantRoles: ['assigner'],
       strategies: [],
@@ -844,7 +844,7 @@ test('rate discovery returns invalid exit 4 for malformed canonical JSON', async
     const indexPath = join(workspace, 'rate-catalog.json');
     writeFileSync(indexPath, JSON.stringify({ schemaVersion: '1.0' }));
     const result = await runTool(workspace, [
-      'find-rate.ts', '--service-key', 'fcl_freight_forwarding', '--origin', 'NLRTM',
+      'find-rate.ts', '--service-key', 'oceanfreight', '--origin', 'NLRTM',
       '--index', indexPath, '--catalog', catalogPath, '--json',
     ]);
     assert.equal(result.code, 4, result.stderr || result.stdout);
@@ -864,7 +864,7 @@ test('rate discovery rejects unknown Heroes values and invalid charge expression
     const responseHash = writeHeroesCatalog(catalogPath, {
       schemaVersion: '1.0', fetchedAt: '2026-08-13T00:00:00Z',
       ...catalogVocabulary,
-      services: [{ serviceKey: 'fcl_freight_forwarding' }],
+      services: [{ serviceKey: 'oceanfreight' }],
       assetTypes: [{ code: 'container' }, { code: 'truck' }],
       assetSubtypes: [{ assetType: 'container', subtype: '40HC' }],
     });
@@ -926,7 +926,7 @@ test('rate discovery reports required offer facts instead of treating a partial 
     const responseHash = writeHeroesCatalog(catalogPath, {
       schemaVersion: '1.0', fetchedAt: '2026-08-13T00:00:00Z',
       ...catalogVocabulary,
-      services: [{ serviceKey: 'fcl_freight_forwarding' }],
+      services: [{ serviceKey: 'oceanfreight' }],
       assetTypes: [{ code: 'container' }, { code: 'truck' }],
       assetSubtypes: [
         { assetType: 'container', subtype: '40HC' },
@@ -938,7 +938,7 @@ test('rate discovery reports required offer facts instead of treating a partial 
       id: 'conditional-card',
       journeyType: 'OFFER',
       rules: [{
-        id: 'conditional-rule', serviceKey: 'fcl_freight_forwarding',
+        id: 'conditional-rule', serviceKey: 'oceanfreight',
         locodes: [
           { code: 'NLRTM', role: 'origin' }, { code: 'GBFXT', role: 'transshipment' },
           { code: 'USNYC', role: 'destination' },
@@ -966,7 +966,7 @@ test('rate discovery reports required offer facts instead of treating a partial 
     writeFileSync(indexPath, JSON.stringify({ schemaVersion: '1.0', rateCards: [conditionalCard] }));
 
     const result = await runTool(workspace, [
-      'find-rate.ts', '--service-key', 'fcl_freight_forwarding', '--origin', 'NLRTM', '--dest', 'USNYC',
+      'find-rate.ts', '--service-key', 'oceanfreight', '--origin', 'NLRTM', '--dest', 'USNYC',
       '--index', indexPath, '--catalog', catalogPath, '--json',
     ]);
     assert.equal(result.code, 3, result.stderr || result.stdout);
@@ -979,7 +979,7 @@ test('rate discovery reports required offer facts instead of treating a partial 
     assert.match(discovery.reason, /strategy OFFER/);
 
     const complete = await runTool(workspace, [
-      'find-rate.ts', '--service-key', 'fcl_freight_forwarding',
+      'find-rate.ts', '--service-key', 'oceanfreight',
       '--origin', 'NLRTM', '--location', 'GBFXT:transshipment', '--dest', 'USNYC',
       '--timeframe', '2026-09-01:2026-09-15', '--asset-type', 'container', '--asset-subtype', '40HC',
       '--asset', 'truck',
@@ -991,7 +991,7 @@ test('rate discovery reports required offer facts instead of treating a partial 
     assert.equal(JSON.parse(complete.stdout).status, 'matched');
 
     const outsideDeparture = await runTool(workspace, [
-      'find-rate.ts', '--service-key', 'fcl_freight_forwarding',
+      'find-rate.ts', '--service-key', 'oceanfreight',
       '--origin', 'NLRTM', '--location', 'GBFXT:transshipment', '--dest', 'USNYC',
       '--timeframe', '2027-01-01:2027-01-15',
       '--asset-type', 'container', '--asset-subtype', '40HC', '--asset', 'truck',
@@ -1003,7 +1003,7 @@ test('rate discovery reports required offer facts instead of treating a partial 
 
     for (const timeframe of ['2026-07-15:2026-08-15', '2027-01-01:', ':2026-07-01']) {
       const invalidValidity = await runTool(workspace, [
-        'find-rate.ts', '--service-key', 'fcl_freight_forwarding',
+        'find-rate.ts', '--service-key', 'oceanfreight',
         '--origin', 'NLRTM', '--location', 'GBFXT:transshipment', '--dest', 'USNYC',
         '--timeframe', timeframe, '--asset-type', 'container', '--asset-subtype', '40HC',
         '--asset', 'truck', '--participant', 'carrier-a:assignee',
@@ -1015,7 +1015,7 @@ test('rate discovery reports required offer facts instead of treating a partial 
     }
 
     const wrongParticipant = await runTool(workspace, [
-      'find-rate.ts', '--service-key', 'fcl_freight_forwarding',
+      'find-rate.ts', '--service-key', 'oceanfreight',
       '--origin', 'NLRTM', '--location', 'GBFXT:transshipment', '--dest', 'USNYC',
       '--timeframe', '2026-09-01:2026-09-15', '--asset-type', 'container', '--asset-subtype', '40HC',
       '--asset', 'truck', '--participant', 'other:assignee',
@@ -1036,7 +1036,7 @@ test('operator exports every charge from the nested contract through the stable 
     const exportCatalogHash = writeHeroesCatalog(heroesCatalog, {
       schemaVersion: '1.0', fetchedAt: '2026-08-13T00:00:00Z',
       ...catalogVocabulary,
-      services: [{ serviceKey: 'fcl_freight_forwarding' }], assetTypes: [{ code: 'container' }],
+      services: [{ serviceKey: 'oceanfreight' }], assetTypes: [{ code: 'container' }],
       assetSubtypes: [{ assetType: 'container', subtype: '40HC' }],
     });
     const indexPath = join(workspace, 'rate-catalog.json');
@@ -1044,7 +1044,7 @@ test('operator exports every charge from the nested contract through the stable 
         id: 'fcl-card',
         journeyType: 'OFFER',
         rules: [{
-          id: 'fcl-rule', serviceKey: 'fcl_freight_forwarding',
+          id: 'fcl-rule', serviceKey: 'oceanfreight',
           locodes: [
             { code: 'NLRTM', role: 'origin' },
             { code: 'GBFXT', role: 'transshipment' },

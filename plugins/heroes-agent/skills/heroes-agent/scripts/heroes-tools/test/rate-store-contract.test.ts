@@ -14,7 +14,7 @@ function heroesCatalog(): HeroesRateCatalog {
     fetchedAt: '2026-09-08T00:00:00Z',
     responseHash: '',
     openApiVersion: '0.1.test',
-    services: [{ serviceKey: 'fcl_freight_forwarding' }],
+    services: [{ serviceKey: 'oceanfreight' }],
     assetTypes: [{ code: 'container' }],
     assetSubtypes: [{ assetType: 'container', subtype: '40HC' }],
     locationRoles: ['origin', 'destination'],
@@ -29,12 +29,12 @@ function heroesCatalog(): HeroesRateCatalog {
 function csv(cardId: string, ruleId: string, amount: string): string {
   return [
     'cardId,ruleId,serviceKey,origin,destination,assetType,assetSubtype,validFrom,validTo,chargeKey,amount,currency,basis,sourceRef,approvalStatus,approvedBy,approvedAt',
-    `${cardId},${ruleId},fcl_freight_forwarding,nlrtm,usnyc,container,40HC,2026-09-01,2026-09-30,freight,${amount},usd,container,${cardId}-source,draft,,,`,
+    `${cardId},${ruleId},oceanfreight,nlrtm,usnyc,container,40HC,2026-09-01,2026-09-30,freight,${amount},usd,container,${cardId}-source,draft,,,`,
   ].join('\n');
 }
 
 const query = {
-  serviceKey: 'fcl_freight_forwarding',
+  serviceKey: 'oceanfreight',
   locodes: [
     { code: 'NLRTM', role: 'origin' },
     { code: 'USNYC', role: 'destination' },

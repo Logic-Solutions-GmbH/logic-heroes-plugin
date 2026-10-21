@@ -12,7 +12,7 @@
  *
  * Example:
  *   npx tsx request-quotation.ts ./intake --target schryver-mx \
- *       --service-key ltl_pickup_origin --name "RFQ - Origin Pickup TSN-IOA"
+ *       --service-key inland_transport --name "RFQ - Origin Pickup TSN-IOA"
  */
 import {
   run,
@@ -31,7 +31,7 @@ run(async (config) => {
   const folder = positional[0];
   const target = flagString(flags, 'target');
   const existingJourneyId = flagString(flags, 'journey-id');
-  const serviceKey = flagString(flags, 'service-key') ?? 'ltl_pickup_origin';
+  const serviceKey = flagString(flags, 'service-key') ?? 'inland_transport';
   const name = flagString(flags, 'name') ?? 'Quotation Request';
   const loCode = flagString(flags, 'lo-code');
 

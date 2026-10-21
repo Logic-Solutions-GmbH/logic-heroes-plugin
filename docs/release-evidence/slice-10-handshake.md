@@ -42,10 +42,11 @@ The other showed that resume still called `POST /journeys`. After the fix,
 structured errors exposed safe detail, and `--journey-id` skipped journey
 creation while preserving service, strategy-event, and multipart behavior.
 
-A separate red test expected the live-proven service key
-`ltl_pickup_origin` but received `OCEAN_FREIGHT`. The corrected default made
-that test pass. Recovery then reused the existing journey and created the
-first HANDSHAKE without another orphan journey.
+A separate red test showed that the default did not match the road service
+used by the smoke scenario. The canonical `inland_transport` template now
+exists, so the corrected default and smoke test use `inland_transport`.
+Recovery then reused the existing journey and created the first HANDSHAKE
+without another orphan journey.
 
 ## Interaction A: tenant-a makes, tenant-b accepts
 

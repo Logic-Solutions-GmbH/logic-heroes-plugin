@@ -273,7 +273,7 @@ test('create-shipment without --collaborator makes the same requests as before',
         false,
       );
       assert.deepEqual(JSON.parse(requests[1].body.toString('utf8')), {
-        serviceKey: 'ltl_pickup_origin',
+        serviceKey: 'inland_transport',
         journeyId: 'journey-1',
       });
     },

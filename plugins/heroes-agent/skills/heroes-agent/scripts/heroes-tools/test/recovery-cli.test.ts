@@ -118,7 +118,7 @@ test('operator can resume shipment creation on an existing journey through the p
     );
     assert.equal(requests.some((request) => request.url === '/api/journeys'), false);
     assert.deepEqual(JSON.parse(requests[0].body.toString('utf8')), {
-      serviceKey: 'ltl_pickup_origin',
+      serviceKey: 'inland_transport',
       journeyId: 'journey-existing-4',
     });
     const event = JSON.parse(requests[1].body.toString('utf8'));

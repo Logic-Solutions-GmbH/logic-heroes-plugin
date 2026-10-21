@@ -114,7 +114,9 @@ A binary vendor document (the carrier PDF) does not go in `payload`. Attach it t
 
 ## Resolve before any write
 
-1. `GET /catalog/services` — the service key must exist.
+Read [services.md](services.md) first and choose each service from the promise in the quote. A carrier's own door move remains inside its ocean or air service; separately provided trucking, carriage, or brokerage becomes a sibling service.
+
+1. `GET /catalog/services` — each chosen service key must exist. Stop if the right template is absent; never substitute a legacy key.
 2. `GET /catalog/asset-types`, `GET /catalog/asset-subtypes?asset_type=…` — map the carrier's
    equipment labels (`20'STD` → `20DC`, `40'STD` → `40DC`, `40'HC` → `40HC`).
 3. `GET /catalog/location-roles` — every `locations[].role`.

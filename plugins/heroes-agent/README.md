@@ -247,7 +247,7 @@ For a rate-contract test, first save the current Heroes catalog. Then copy `self
 node <plugin-root>/scripts/run-tool.mjs sync-rate-catalog.ts
 node <plugin-root>/scripts/run-tool.mjs ingest-rates.ts --dry-run
 node <plugin-root>/scripts/run-tool.mjs ingest-rates.ts --approve-by "<operator name>"
-node <plugin-root>/scripts/run-tool.mjs find-rate.ts --service-key fcl_freight_forwarding --origin NLRTM --dest USNYC --asset-type container --asset-subtype 40HC --date 2026-09-01
+node <plugin-root>/scripts/run-tool.mjs find-rate.ts --service-key oceanfreight --origin NLRTM --dest USNYC --asset-type container --asset-subtype 40HC --date 2026-09-01
 node <plugin-root>/scripts/run-tool.mjs export-rates.ts
 ```
 

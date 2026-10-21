@@ -97,7 +97,7 @@ test('requester can resume RFQ on an existing journey through the public launche
     ]);
     assert.equal(requests.every((request) => request.apiKey === 'test-only-key'), true);
     assert.deepEqual(JSON.parse(requests[0].body.toString('utf8')), {
-      serviceKey: 'ltl_pickup_origin',
+      serviceKey: 'inland_transport',
       journeyId: 'journey-rfq-1',
     });
     const event = JSON.parse(requests[1].body.toString('utf8'));

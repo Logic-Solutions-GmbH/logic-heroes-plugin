@@ -34,7 +34,7 @@ run(async (config) => {
   const folder = positional[0];
   const target = flagString(flags, 'target');
   const existingJourneyId = flagString(flags, 'journey-id');
-  const serviceKey = flagString(flags, 'service-key') ?? 'ltl_pickup_origin';
+  const serviceKey = flagString(flags, 'service-key') ?? 'inland_transport';
   const name = flagString(flags, 'name') ?? 'Service Request';
   const loCode = flagString(flags, 'lo-code');
   const collaboratorKeys = flagValues(argv, 'collaborator').map((key) => key.trim());
