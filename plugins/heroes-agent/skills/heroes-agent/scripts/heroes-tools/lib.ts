@@ -198,6 +198,37 @@ export async function api<T = any>(config: Config, opts: ApiOptions): Promise<T>
   return data;
 }
 
+export interface JourneyReleaseResult {
+  releasedJourney: string | null;
+  failures: string[];
+}
+
+/**
+ * Release a journey minted by the current command without hiding the outcome
+ * that prompted cleanup. A failed release is returned for reconciliation.
+ */
+export async function releaseCreatedJourney(
+  config: Config,
+  args: { journeyId: string; apiKey: string; createdJourney: boolean },
+): Promise<JourneyReleaseResult> {
+  if (!args.createdJourney) return { releasedJourney: null, failures: [] };
+  try {
+    await api(config, {
+      method: 'DELETE',
+      path: `/journeys/${args.journeyId}`,
+      apiKey: args.apiKey,
+    });
+    return { releasedJourney: args.journeyId, failures: [] };
+  } catch (error) {
+    return {
+      releasedJourney: null,
+      failures: [
+        `journey ${args.journeyId}: ${error instanceof Error ? error.message : String(error)}`,
+      ],
+    };
+  }
+}
+
 export interface ServiceCollaborator {
   id: number;
   serviceId: string;

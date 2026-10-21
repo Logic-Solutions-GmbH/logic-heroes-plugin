@@ -96,6 +96,15 @@ test('carriage validation mirrors the table presence rules', () => {
     }).issues.join('\n'),
     /handlingMethod must be omitted/,
   );
+  assert.match(
+    parseServiceCarriage('inland_transport', {
+      containerAllocation: 'none',
+      vehicleType: 'truck',
+      vehicleAllocation: 'exclusive',
+      handlingMetod: 'lift_on_lift_off',
+    }).issues.join('\n'),
+    /carriage\.handlingMetod is not a carriage field/,
+  );
 });
 
 async function withServer(
@@ -247,6 +256,77 @@ test('create-shipment maps definitive carriage rejections to exit 9 and releases
       },
     );
   }
+});
+
+test('request-quotation releases its journey after a definitive carriage rejection', async () => {
+  await withServer(
+    'heroes-carriage-rfq-refused-',
+    (request, response) => {
+      if (request.url === '/api/journeys') return json(response, 201, { id: 'rfq-journey-refused' });
+      if (request.url === '/api/services') {
+        response.writeHead(400, { 'content-type': 'application/json' });
+        return response.end(JSON.stringify({
+          success: false,
+          error: { code: 'CARRIAGE_REQUIRED', message: 'stubbed carriage rejection' },
+        }));
+      }
+      if (request.url === '/api/journeys/rfq-journey-refused' && request.method === 'DELETE') {
+        return json(response, 200, {});
+      }
+      json(response, 404, {});
+    },
+    async ({ workspace, port, requests }) => {
+      const result = await runTool(workspace, port, [
+        'request-quotation.ts', payloadFolder(workspace), '--target', 'globex',
+        '--service-key', 'inland_transport',
+      ]);
+
+      assert.equal(result.code, 9, result.stderr || result.stdout);
+      assert.deepEqual(requests.map((request) => `${request.method} ${request.url}`), [
+        'POST /api/journeys',
+        'POST /api/services',
+        'DELETE /api/journeys/rfq-journey-refused',
+      ]);
+      const printed = JSON.parse(result.stdout.slice(result.stdout.indexOf('{')));
+      assert.equal(printed.reason, 'CARRIAGE_REQUIRED');
+      assert.equal(printed.releasedJourney, 'rfq-journey-refused');
+      assert.deepEqual(printed.failures, []);
+    },
+  );
+});
+
+test('a failed carriage-refusal release exits 10 and reports the journey for reconciliation', async () => {
+  await withServer(
+    'heroes-carriage-release-failed-',
+    (request, response) => {
+      if (request.url === '/api/journeys') return json(response, 201, { id: 'journey-still-present' });
+      if (request.url === '/api/services') {
+        response.writeHead(400, { 'content-type': 'application/json' });
+        return response.end(JSON.stringify({
+          success: false,
+          error: { code: 'CARRIAGE_REQUIRED', message: 'stubbed carriage rejection' },
+        }));
+      }
+      if (request.url === '/api/journeys/journey-still-present' && request.method === 'DELETE') {
+        return json(response, 409, { message: 'journey remains in use' });
+      }
+      json(response, 404, {});
+    },
+    async ({ workspace, port, requests }) => {
+      const result = await runTool(workspace, port, [
+        'create-shipment.ts', payloadFolder(workspace), '--target', 'globex',
+        '--service-key', 'inland_transport',
+      ]);
+
+      assert.equal(result.code, 10, result.stderr || result.stdout);
+      assert.equal(requests.at(-1)?.url, '/api/journeys/journey-still-present');
+      const printed = JSON.parse(result.stdout.slice(result.stdout.indexOf('{')));
+      assert.equal(printed.reason, 'CARRIAGE_REQUIRED');
+      assert.equal(printed.releasedJourney, null);
+      assert.match(printed.failures[0], /journey journey-still-present: 409/);
+      assert.match(printed.nextStep, /Reconcile/);
+    },
+  );
 });
 
 test('service-status shows declared carriage and the server consistency view', async () => {

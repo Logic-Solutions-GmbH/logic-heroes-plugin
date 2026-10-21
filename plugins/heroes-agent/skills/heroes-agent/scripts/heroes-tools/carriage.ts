@@ -13,12 +13,18 @@ const HANDLING_METHODS = ['lift_on_lift_off', 'roll_on_roll_off'] as const;
 const WATER_VEHICLE_TYPES: ReadonlySet<string> = new Set(['vessel', 'barge']);
 
 export interface Carriage {
-  [key: string]: unknown;
   containerAllocation?: (typeof CONTAINER_ALLOCATIONS)[number];
   vehicleType: (typeof VEHICLE_TYPES)[number];
   vehicleAllocation: (typeof VEHICLE_ALLOCATIONS)[number];
   handlingMethod?: (typeof HANDLING_METHODS)[number];
 }
+
+const CARRIAGE_FIELDS: ReadonlySet<string> = new Set([
+  'containerAllocation',
+  'vehicleType',
+  'vehicleAllocation',
+  'handlingMethod',
+]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -48,6 +54,10 @@ export function parseCarriage(
   const vehicleType = value.vehicleType;
   const vehicleAllocation = value.vehicleAllocation;
   const handlingMethod = value.handlingMethod;
+
+  for (const key of Object.keys(value)) {
+    if (!CARRIAGE_FIELDS.has(key)) issues.push(`${at}.${key} is not a carriage field`);
+  }
 
   if (
     containerAllocation !== undefined &&
@@ -90,17 +100,12 @@ export function parseCarriage(
   }
 
   if (issues.length > 0) return { issues };
-  const carriage = {
-    ...value,
+  const carriage: Carriage = {
     vehicleType: vehicleType as Carriage['vehicleType'],
     vehicleAllocation: vehicleAllocation as Carriage['vehicleAllocation'],
-  } as Carriage;
-  if (containerAllocation === undefined || containerAllocation === null) {
-    delete carriage.containerAllocation;
-  }
-  if (handlingMethod === undefined || handlingMethod === null) {
-    delete carriage.handlingMethod;
-  }
+    ...(oneOf(containerAllocation, CONTAINER_ALLOCATIONS) ? { containerAllocation } : {}),
+    ...(oneOf(handlingMethod, HANDLING_METHODS) ? { handlingMethod } : {}),
+  };
   return {
     carriage,
     issues: [],

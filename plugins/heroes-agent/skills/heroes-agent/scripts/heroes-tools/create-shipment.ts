@@ -25,6 +25,7 @@ import {
   api,
   ApiError,
   apiErrorCode,
+  releaseCreatedJourney,
   addServiceCollaborator,
   readPayloadFolder,
   createEventWithAttachment,
@@ -103,19 +104,22 @@ run(async (config) => {
       error.status < 500 &&
       (code === 'CARRIAGE_NOT_ALLOWED' || code === 'CARRIAGE_REQUIRED')
     ) {
-      let releasedJourney: string | null = null;
-      if (createdJourney) {
-        await api(config, { method: 'DELETE', path: `/journeys/${journeyId}`, apiKey });
-        releasedJourney = journeyId!;
-      }
+      const released = await releaseCreatedJourney(config, {
+        journeyId: journeyId!,
+        apiKey,
+        createdJourney,
+      });
       console.log(JSON.stringify({
         status: 'refused',
         reason: code,
         detail: error.message,
         journeyId,
-        releasedJourney,
+        ...released,
+        ...(released.failures.length
+          ? { nextStep: 'Release did not finish. Reconcile the journey id by hand before retrying.' }
+          : {}),
       }, null, 2));
-      process.exitCode = 9;
+      process.exitCode = released.failures.length ? 10 : 9;
       return;
     }
     throw error;
