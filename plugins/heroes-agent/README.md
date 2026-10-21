@@ -247,11 +247,11 @@ For a rate-contract test, first save the current Heroes catalog. Then copy `self
 node <plugin-root>/scripts/run-tool.mjs sync-rate-catalog.ts
 node <plugin-root>/scripts/run-tool.mjs ingest-rates.ts --dry-run
 node <plugin-root>/scripts/run-tool.mjs ingest-rates.ts --approve-by "<operator name>"
-node <plugin-root>/scripts/run-tool.mjs find-rate.ts --service-key oceanfreight --origin NLRTM --dest USNYC --asset-type container --asset-subtype 40HC --date 2026-09-01
+node <plugin-root>/scripts/run-tool.mjs find-rate.ts --service-key oceanfreight --origin NLRTM --dest USNYC --asset-type container --asset-subtype 40HC --carriage request-carriage.json --date 2026-09-01
 node <plugin-root>/scripts/run-tool.mjs export-rates.ts
 ```
 
-`sync-rate-catalog.ts` is read-only and uses the existing peer credential. `ingest-rates.ts --dry-run` still needs an existing inbox. A CSV with no rate rows remains in the inbox and does not create an index. `find-rate.ts` exits `2` until both `heroes-catalog.json` and `rate-catalog.json` exist. It exits `3` when no automatic result is available, including missing facts or ambiguity. It exits `4` for an invalid query or catalog. JSON returns at most 20 compact candidate summaries and reports the full count plus truncation. It never selects the cheapest result.
+`sync-rate-catalog.ts` is read-only and uses the existing peer credential. `ingest-rates.ts --dry-run` still needs an existing inbox. A CSV with no rate rows remains in the inbox and does not create an index. Transport rates preserve applicability in `carriageJson`; discovery accepts the same object through `--carriage <json-file>` or the four individual carriage flags. `find-rate.ts` exits `2` until both `heroes-catalog.json` and `rate-catalog.json` exist. It exits `3` when no automatic result is available, including missing facts or ambiguity. It exits `4` for an invalid query or catalog. JSON returns at most 20 compact candidate summaries and reports the full count plus truncation. It never selects the cheapest result.
 
 ## Local data and the system of record
 

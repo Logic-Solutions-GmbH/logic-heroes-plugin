@@ -1,8 +1,8 @@
 # Local rate catalog
 
-The canonical local store is `self/rate-book/index/rate-catalog.json`. It uses contract version `1.0`.
+The canonical local store is `self/rate-book/index/rate-catalog.json`. New and updated stores use contract version `1.1`; version `1.0` stores remain readable.
 
-One rate card resembles one Heroes `OFFER` journey. Each rate rule resembles one service within that offer. Heroes controls service keys, location roles, asset types, asset subtypes, participant roles, and strategy vocabulary. The local peer controls provider charges, conditions, source evidence, and approval.
+One rate card resembles one Heroes `OFFER` journey. Each rate rule resembles one service within that offer. Heroes controls service keys, location roles, asset types, asset subtypes, participant roles, and strategy vocabulary. A transport rule may also name the service's `carriage`: `containerAllocation`, `vehicleType`, `vehicleAllocation`, and `handlingMethod`, using the same shape as `POST /services`. The local peer controls provider charges, conditions, source evidence, and approval.
 
 ## Prepare the Heroes catalog
 
@@ -14,7 +14,7 @@ node <plugin-root>/scripts/run-tool.mjs sync-rate-catalog.ts
 
 It uses the current `self/.env` credential. It writes `self/rate-book/index/heroes-catalog.json` with a response hash. It never writes or prints the credential.
 
-The command reads service keys, assets, strategy templates, and offer-search role values. It requests asset subtypes separately for every asset type because that catalog is dependent.
+The command reads service keys, assets, strategy templates, and offer-search role values. It requests asset subtypes separately for every asset type because that catalog is dependent. Carriage values use the service carriage contract because Heroes does not publish a carriage catalog yet.
 
 ## Import CSV
 
@@ -27,7 +27,7 @@ node <plugin-root>/scripts/run-tool.mjs ingest-rates.ts --approve-by "<operator 
 
 Each initial CSV row must be `draft`. The explicit `--approve-by` action records the human approval during import. Approved CSV exports include a content hash. The importer rejects a changed approved export.
 
-Each CSV row describes one charge. Repeat `cardId` and `ruleId` to attach several charges to one rule. A charge uses either `amount` or `tiersJson`. It can also use `minimum` and `maximum`. The simple columns support common locations, validity, and one asset. The JSON columns preserve all timeframes, source evidence, and nested applicability during export and re-import.
+Each CSV row describes one charge. Repeat `cardId` and `ruleId` to attach several charges to one rule. A charge uses either `amount` or `tiersJson`. It can also use `minimum` and `maximum`. The simple columns support common locations, validity, and one asset. The JSON columns preserve all timeframes, source evidence, and nested applicability during export and re-import. Put the complete carriage object in `carriageJson`; repeated rows for one rule must use the same value.
 
 Every rate rule must contain at least one validity timeframe. An empty `timeframes` array is invalid.
 
@@ -59,10 +59,13 @@ node <plugin-root>/scripts/run-tool.mjs find-rate.ts \
   --service-key oceanfreight \
   --origin NLRTM --dest USNYC \
   --asset-type container --asset-subtype 40HC \
+  --carriage request-carriage.json \
   --date 2026-09-01 --json
 ```
 
 For a single-location service, use `--location <code>:<role>`. Repeat `--location` for each extra location. Repeat `--asset <type>:<subtype>` for each extra asset. Repeat `--participant <tenant-key>:<role>` for each participant. Use `--strategy <key>` and `--strategy-step <step>` when a rule requires those facts. Each stored timeframe uses the Heroes offer-search `{from,to}` shape. The saved Heroes snapshot supplies all accepted role and strategy values.
+
+Supply carriage with `--carriage <json-file>`. The file uses the same object as `POST /services`; keeping it in a file prevents business values from entering shell text. For fixed local invocations, the equivalent individual flags are `--container-allocation`, `--vehicle-type`, `--vehicle-allocation`, and `--handling-method`. Do not combine the file and individual forms. A carriage-qualified rule is incomplete until the query supplies carriage, and a different carriage does not apply. If a qualified rule also applies, a version `1.0` transport rule without carriage is reported as missing `rate rule carriage` instead of being selected or creating ambiguity.
 
 Exit codes are stable:
 
@@ -83,7 +86,7 @@ Run:
 node <plugin-root>/scripts/run-tool.mjs export-rates.ts
 ```
 
-The default output is `self/rate-book/index/rate-catalog.csv`. It contains one row per charge. Its JSON columns preserve locations, assets, participants, strategy, and conditions for re-import.
+The default output is `self/rate-book/index/rate-catalog.csv`. It contains one row per charge. Its JSON columns preserve locations, assets, participants, strategy, carriage, and conditions for re-import.
 
 ## Product boundary
 

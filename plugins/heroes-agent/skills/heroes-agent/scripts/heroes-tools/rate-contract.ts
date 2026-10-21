@@ -1,10 +1,16 @@
 import { createHash } from 'node:crypto';
 import { api, csvToObjects, objectsToCsv, type Config } from './lib';
+import { parseServiceCarriage, TRANSPORT_SERVICE_KEYS, type Carriage } from './carriage';
 
-export const RATE_CONTRACT_VERSION = '1.0' as const;
+export const RATE_CONTRACT_VERSION = '1.1' as const;
+export type RateContractVersion = '1.0' | typeof RATE_CONTRACT_VERSION;
+
+function isSupportedRateContractVersion(value: unknown): value is RateContractVersion {
+  return value === '1.0' || value === RATE_CONTRACT_VERSION;
+}
 
 export interface HeroesRateCatalog {
-  schemaVersion: typeof RATE_CONTRACT_VERSION;
+  schemaVersion: RateContractVersion;
   fetchedAt: string;
   responseHash: string;
   openApiVersion: string;
@@ -37,6 +43,7 @@ export interface RateRule {
   assetTypes: { type: string; subtypes: string[] }[];
   participants: { tenantKey: string; role: string }[];
   strategy: { strategyKey: string; currentStep: string } | null;
+  carriage?: Carriage;
   charges: RateCharge[];
   conditions: string[];
 }
@@ -51,7 +58,7 @@ export interface RateCard {
 }
 
 export interface RateCatalog {
-  schemaVersion: typeof RATE_CONTRACT_VERSION;
+  schemaVersion: RateContractVersion;
   rateCards: RateCard[];
 }
 
@@ -62,6 +69,7 @@ export interface RateDiscoveryQuery {
   assetTypes?: { type: string; subtypes: string[] }[];
   participants?: { tenantKey: string; role: string }[];
   strategy?: { strategyKey: string; currentStep?: string };
+  carriage?: Carriage;
 }
 
 export interface RateCandidate {
@@ -123,7 +131,7 @@ export const RATE_CSV_COLUMNS = [
   'assetType', 'assetSubtype', 'validFrom', 'validTo', 'chargeKey', 'amount', 'currency',
   'basis', 'minimum', 'maximum', 'tiersJson', 'sourceRef', 'approvalStatus', 'approvedBy', 'approvedAt', 'condition',
   'locodesJson', 'assetTypesJson', 'participantsJson', 'strategyJson', 'conditionsJson', 'sourceEvidenceJson',
-  'timeframesJson', 'cardContentHash',
+  'timeframesJson', 'carriageJson', 'cardContentHash',
 ] as const;
 
 function asRecords(value: unknown): Record<string, unknown>[] {
@@ -363,13 +371,13 @@ export function validateRateCatalog(
     );
     return issues;
   }
-  if (heroesCatalog.schemaVersion !== RATE_CONTRACT_VERSION ||
+  if (!isSupportedRateContractVersion(heroesCatalog.schemaVersion) ||
       !isIsoDateTime(heroesCatalog.fetchedAt) ||
       computeHeroesCatalogHash(heroesCatalog) !== heroesCatalog.responseHash) {
     issues.push('Heroes catalog snapshot is invalid or its response hash does not match');
     return issues;
   }
-  if (rateCatalog.schemaVersion !== RATE_CONTRACT_VERSION) {
+  if (!isSupportedRateContractVersion(rateCatalog.schemaVersion)) {
     issues.push(`unsupported rate catalog version ${rateCatalog.schemaVersion}`);
     return issues;
   }
@@ -444,6 +452,9 @@ export function validateRateCatalog(
         else if (!steps.has(rule.strategy.currentStep)) {
           issues.push(`${ruleAt}: unknown Heroes strategy step ${rule.strategy.strategyKey}/${rule.strategy.currentStep}`);
         }
+      }
+      if (rule.carriage !== undefined) {
+        issues.push(...parseServiceCarriage(rule.serviceKey, rule.carriage, `${ruleAt}: carriage`).issues);
       }
       if (!Array.isArray(rule.charges) || rule.charges.length === 0) issues.push(`${ruleAt}: at least one charge is required`);
       const chargeKeys = new Set<string>();
@@ -600,6 +611,13 @@ export function importRateCsv(
     }
     const participants = jsonValue<RateRule['participants']>(row.participantsJson, [], source, 'participantsJson');
     const strategy = jsonValue<RateRule['strategy']>(row.strategyJson, null, source, 'strategyJson');
+    let carriage: Carriage | undefined;
+    if (text(row.carriageJson)) {
+      const carriageValue = jsonValue<unknown>(row.carriageJson, undefined, source, 'carriageJson');
+      const parsed = parseServiceCarriage(serviceKey, carriageValue, `${source}: carriageJson`);
+      if (!parsed.carriage) throw new Error(parsed.issues.join('; '));
+      carriage = parsed.carriage;
+    }
     const conditions = jsonValue<string[]>(
       row.conditionsJson,
       text(row.condition) ? [text(row.condition)] : [],
@@ -615,11 +633,12 @@ export function importRateCsv(
         assetTypes: assetRule,
         participants,
         strategy,
+        ...(carriage ? { carriage } : {}),
         charges: [],
         conditions,
       };
       card.rules.push(rule);
-    } else if (stableJson({ serviceKey: rule.serviceKey, locodes: rule.locodes, timeframes: rule.timeframes, assetTypes: rule.assetTypes, participants: rule.participants, strategy: rule.strategy, conditions: rule.conditions }) !== stableJson({ serviceKey, locodes, timeframes, assetTypes: assetRule, participants, strategy, conditions })) {
+    } else if (stableJson({ serviceKey: rule.serviceKey, locodes: rule.locodes, timeframes: rule.timeframes, assetTypes: rule.assetTypes, participants: rule.participants, strategy: rule.strategy, carriage: rule.carriage, conditions: rule.conditions }) !== stableJson({ serviceKey, locodes, timeframes, assetTypes: assetRule, participants, strategy, carriage, conditions })) {
       throw new Error(`${source}: rule ${ruleId} has conflicting Heroes applicability`);
     }
     const tiers = jsonValue<NonNullable<RateCharge['tiers']>>(row.tiersJson, [], source, 'tiersJson');
@@ -692,6 +711,7 @@ export function exportRateCsv(rateCatalog: RateCatalog): string {
           conditionsJson: JSON.stringify(rule.conditions),
           sourceEvidenceJson: JSON.stringify(card.sourceEvidence),
           timeframesJson: JSON.stringify(rule.timeframes),
+          carriageJson: rule.carriage ? JSON.stringify(rule.carriage) : '',
           cardContentHash: card.approval.contentHash ?? '',
         });
       }
@@ -747,15 +767,16 @@ export function discoverRate(
       queryIssues.push(`unknown Heroes strategy step ${query.strategy.strategyKey}/${query.strategy.currentStep}`);
     }
   }
+  if (query.carriage !== undefined) {
+    queryIssues.push(...parseServiceCarriage(query.serviceKey, query.carriage, 'query carriage').issues);
+  }
   if (queryIssues.length) {
     return {
       status: 'invalid', match: false, reason: queryIssues.join('; '), query,
       candidates: [], candidateTotal: 0, candidatesTruncated: false,
     };
   }
-  const candidates: RateCandidate[] = [];
-  const incomplete: RateCandidate[] = [];
-  const ineligible: RateCandidate[] = [];
+  const assessed: RateCandidate[] = [];
   for (const card of rateCatalog.rateCards) {
     for (const rule of card.rules) {
       if (rule.serviceKey !== query.serviceKey) continue;
@@ -787,6 +808,7 @@ export function discoverRate(
         rule.strategy.strategyKey !== query.strategy.strategyKey ||
         (query.strategy.currentStep && rule.strategy.currentStep !== query.strategy.currentStep)
       )) continue;
+      if (rule.carriage && query.carriage && stableJson(rule.carriage) !== stableJson(query.carriage)) continue;
 
       const missingFacts: string[] = [];
       for (const actual of rule.locodes) {
@@ -812,6 +834,7 @@ export function discoverRate(
       else if (rule.strategy?.currentStep && !query.strategy?.currentStep) {
         missingFacts.push(`strategy step ${rule.strategy.currentStep}`);
       }
+      if (rule.carriage && !query.carriage) missingFacts.push('carriage');
       const ineligibleReasons: string[] = [];
       if (card.approval.status !== 'approved') ineligibleReasons.push('rate card is not approved');
       if (card.catalogReference.responseHash !== heroesCatalog.responseHash) {
@@ -820,10 +843,29 @@ export function discoverRate(
       const candidate = {
         cardId: card.id, rule, sourceEvidence: card.sourceEvidence, missingFacts, ineligibleReasons,
       };
-      if (ineligibleReasons.length) ineligible.push(candidate);
-      else if (missingFacts.length) incomplete.push(candidate);
-      else candidates.push(candidate);
+      assessed.push(candidate);
     }
+  }
+
+  // A legacy transport rule can still stand on its own. Once a carriage-qualified
+  // rule also applies, however, treating the broad legacy rule as complete would
+  // either recreate FCL/LCL ambiguity or silently select an under-specified rate.
+  const carriageQualifiedRuleApplies = assessed.some(
+    (candidate) => candidate.rule.carriage && candidate.ineligibleReasons.length === 0,
+  );
+  if (carriageQualifiedRuleApplies && TRANSPORT_SERVICE_KEYS.has(query.serviceKey)) {
+    for (const candidate of assessed) {
+      if (!candidate.rule.carriage) candidate.missingFacts.push('rate rule carriage');
+    }
+  }
+
+  const candidates: RateCandidate[] = [];
+  const incomplete: RateCandidate[] = [];
+  const ineligible: RateCandidate[] = [];
+  for (const candidate of assessed) {
+    if (candidate.ineligibleReasons.length) ineligible.push(candidate);
+    else if (candidate.missingFacts.length) incomplete.push(candidate);
+    else candidates.push(candidate);
   }
 
   const evidence = [...candidates, ...incomplete, ...ineligible];

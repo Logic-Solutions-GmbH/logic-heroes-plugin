@@ -4,6 +4,7 @@ import {
   type LocationRole, type RateDiscovery, type RateDiscoveryQuery,
 } from './rate-contract';
 import { openConfiguredRateStore, RateStoreUnavailableError } from './rate-store';
+import { parseServiceCarriage, readCarriageFile } from './carriage';
 
 run(async () => {
   const argv = process.argv.slice(2);
@@ -30,6 +31,10 @@ run(async () => {
   const participantValues = repeated('participant');
   const strategyKey = flagString(flags, 'strategy');
   const strategyStep = flagString(flags, 'strategy-step');
+  const carriageFile = flagString(flags, 'carriage');
+  const carriageFlagNames = [
+    'container-allocation', 'vehicle-type', 'vehicle-allocation', 'handling-method',
+  ] as const;
   const jsonOnly = flags.json === true;
 
   const failQuery = (reason: string): never => {
@@ -40,6 +45,36 @@ run(async () => {
     process.exit(4);
   };
   const requiredServiceKey = serviceKey ?? failQuery('--service-key is required');
+  if (flags.carriage === true) failQuery('--carriage requires a JSON file');
+  const suppliedCarriageFlags = carriageFlagNames.filter((name) => flags[name] !== undefined);
+  for (const name of suppliedCarriageFlags) {
+    if (flags[name] === true) failQuery(`--${name} requires a value`);
+  }
+  if (carriageFile && suppliedCarriageFlags.length) {
+    failQuery('--carriage cannot be combined with individual carriage flags');
+  }
+  let carriage: RateDiscoveryQuery['carriage'];
+  try {
+    if (carriageFile) {
+      carriage = readCarriageFile(carriageFile, requiredServiceKey);
+    } else if (suppliedCarriageFlags.length) {
+      const value = {
+        ...(flagString(flags, 'container-allocation')
+          ? { containerAllocation: flagString(flags, 'container-allocation') }
+          : {}),
+        ...(flagString(flags, 'vehicle-type') ? { vehicleType: flagString(flags, 'vehicle-type') } : {}),
+        ...(flagString(flags, 'vehicle-allocation')
+          ? { vehicleAllocation: flagString(flags, 'vehicle-allocation') }
+          : {}),
+        ...(flagString(flags, 'handling-method') ? { handlingMethod: flagString(flags, 'handling-method') } : {}),
+      };
+      const parsed = parseServiceCarriage(requiredServiceKey, value, 'carriage');
+      if (!parsed.carriage) failQuery(parsed.issues.join('; '));
+      carriage = parsed.carriage;
+    }
+  } catch (error) {
+    failQuery(error instanceof Error ? error.message : 'invalid carriage');
+  }
   const locodes: RateDiscoveryQuery['locodes'] = [];
   for (const origin of origins) locodes.push({ code: origin, role: 'origin' });
   for (const destination of destinations) locodes.push({ code: destination, role: 'destination' });
@@ -77,7 +112,9 @@ run(async () => {
     if (extra !== undefined || (!from && !to)) failQuery('--timeframe must use <from>:<to> with either bound allowed');
     timeframes.push({ ...(from ? { from } : {}), ...(to ? { to } : {}) });
   }
-  const query = { serviceKey: requiredServiceKey, locodes, timeframes, assetTypes, participants, strategy };
+  const query = {
+    serviceKey: requiredServiceKey, locodes, timeframes, assetTypes, participants, strategy, carriage,
+  };
   let result: RateDiscovery;
   try {
     const { store } = openConfiguredRateStore(flags);
