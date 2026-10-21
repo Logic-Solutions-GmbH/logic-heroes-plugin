@@ -1,0 +1,468 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Full ServiceRequest v3 instance for GET /api/heroes/transportOrder
+  (document omitted). Development @ e993d94.
+
+  Synthetic. Every node the builder can emit on this response is filled.
+  Two shapes that never share one element are shown on sibling nodes:
+  - Address: structured (asked tramo, with CountryCode) and Line list.
+  - DangerousGoods: DGD list (document link) and plain text (no link).
+  - Cargo: nested CargoDetail on ServiceRequested; CargoItemDetail under HBL and Service.
+
+  Schema: ServiceRequest.v3.xsd
+  ShipmentUpdate (?document=shipmentUpdate) is the other root in that XSD.
+  It drops ServiceRequested and adds Year, Client, Origin, Destination,
+  CargoDescription, plus Voyage, Flight, BOL, MRN and Depot on the legs.
+-->
+<ServiceRequest version="3" language="English"
+                xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                xsi:noNamespaceSchemaLocation="ServiceRequest.v3.xsd">
+  <Booking>
+    <Reference>26DEMX90001</Reference>
+    <JourneyID>c09b1fd1-f740-4e29-b674-fb68c17c30ea</JourneyID>
+    <MainTransport>Sea</MainTransport>
+    <OperationType>EXPORT</OperationType>
+    <OriginCountry>GERMANY</OriginCountry>
+    <DestinationCountry>MEXICO</DestinationCountry>
+    <FinalDestination>VERACRUZ</FinalDestination>
+  </Booking>
+  <Issuer>
+    <TenantKey>hj-schryver-de</TenantKey>
+    <Name>HJ SCHRYVER &amp; CO (GMBH &amp; CO. KG)</Name>
+    <RequestedBy>
+      <Name>CAROLINA VERA</Name>
+      <Email>carolina.vera@schryver.com</Email>
+      <Phone>+49 40 23633 223</Phone>
+    </RequestedBy>
+    <OperationsContact>OPS HAMBURG +49 40 23633 100</OperationsContact>
+  </Issuer>
+  <Partner>
+    <TenantKey>leschaco-gmbh</TenantKey>
+    <Name>LESCHACO LEXZAU, SCHARBAU GMBH &amp; CO. KG</Name>
+  </Partner>
+  <DirectedTo>CONTINENTAL LINK PANAMERICANA SA DE CV CALLE EMERSON 150-Int. 503 COL. POLANCO CHAPULTEPEC, 11560 DEL MIGUEL HIDALGO, CIUDAD DE MEXICO MEXICO</DirectedTo>
+  <Parties>
+    <Shipper>
+      <Name>VALEO POWERTRAIN GMBH</Name>
+      <Address>
+        <Line>ANDREAS-HUMANN-STR. 2</Line>
+        <Line>96106 EBERN</Line>
+        <Line>GERMANY</Line>
+      </Address>
+    </Shipper>
+    <Consignee>
+      <Name>FTE MEXICANA SA DE CV</Name>
+      <Address>
+        <Line>KM 14.5 AUTOPISTA PUEBLA ORIZABA PARQUE INDUSTRIAL CHACHAPA 72990 AMOZOC PUEBLA</Line>
+        <Line>MEXICO</Line>
+      </Address>
+    </Consignee>
+  </Parties>
+  <References>
+    <CarrierBooking>266152341</CarrierBooking>
+    <TruckerQuotation>TQ-2026-0144</TruckerQuotation>
+    <ShipperReference>
+      <Line>Referencia SI2603-037</Line>
+      <Line>PO 55090104</Line>
+    </ShipperReference>
+  </References>
+  <ServiceRequested>
+    <ServiceID>eb3ce25e-3e14-4627-8a64-d6df60840314</ServiceID>
+    <Key>sea_fcl</Key>
+    <Mode>Sea</Mode>
+    <LoadType>FCL</LoadType>
+    <Pickup>
+      <Company>VALEO POWERTRAIN GMBH</Company>
+      <Address>
+        <Company>VALEO POWERTRAIN GMBH</Company>
+        <Street>Andreas-Humann-Str. 2</Street>
+        <PostalCode>96106</PostalCode>
+        <City>Ebern</City>
+        <State>Bayern</State>
+        <Country>Germany</Country>
+        <CountryCode>DE</CountryCode>
+      </Address>
+      <Reference>10789879-10789903</Reference>
+      <Date>05/Mar/2026</Date>
+      <TimeFrom>06:00</TimeFrom>
+      <TimeTo>18:00</TimeTo>
+    </Pickup>
+    <Delivery>
+      <Company>FTE MEXICANA SA DE CV</Company>
+      <Address>
+        <Company>FTE MEXICANA SA DE CV</Company>
+        <Street>Km 14.5 Autopista Puebla Orizaba</Street>
+        <PostalCode>72990</PostalCode>
+        <City>Amozoc</City>
+        <State>Puebla</State>
+        <Country>Mexico</Country>
+        <CountryCode>MX</CountryCode>
+      </Address>
+      <Reference>26DEMX90001</Reference>
+      <Date>02/Apr/2026</Date>
+      <TimeFrom>08:00</TimeFrom>
+      <TimeTo>16:00</TimeTo>
+    </Delivery>
+    <Depot>
+      <Address>
+        <Line>EUROGATE CONTAINER TERMINAL</Line>
+        <Line>AM BALLINKAI 1</Line>
+        <Line>21129 HAMBURG</Line>
+        <Line>GERMANY</Line>
+      </Address>
+      <Reference>DEP-HAM-01</Reference>
+      <Date>04/Mar/2026</Date>
+    </Depot>
+    <POLId>92</POLId>
+    <POL>HAM - HAMBURG, GERMANY</POL>
+    <POLLocode>DEHAM</POLLocode>
+    <PODId>734</PODId>
+    <POD>VER - VERACRUZ, MEXICO</POD>
+    <PODLocode>MXVER</PODLocode>
+    <Vessel>MAERSK FELIXSTOWE</Vessel>
+    <ETD>2026-03-15 00:00:00.000</ETD>
+    <ETA>2026-03-30 00:00:00.000</ETA>
+    <Provider>MAERSK LINE</Provider>
+    <TransportProviderId>1349</TransportProviderId>
+    <ExportDeclarationByTrucker>Yes</ExportDeclarationByTrucker>
+    <TruckFreightRate>EUR 850.00</TruckFreightRate>
+    <FreeDays>7</FreeDays>
+    <DeadlineCargo>2026-03-12 12:00:00.000</DeadlineCargo>
+    <DeadlineDraft>2026-03-13 16:00:00.000</DeadlineDraft>
+    <DeadlineVGM>2026-03-13 12:00:00.000</DeadlineVGM>
+    <CargoDetails>
+      <CargoDetail sequence="1">
+        <Quantity>1</Quantity>
+        <PackagingType>20' DV</PackagingType>
+        <GrossWeight>4200.00</GrossWeight>
+        <NetWeight>3800.00</NetWeight>
+        <Volume>18.400</Volume>
+        <Dimensions>605x243x259 cm</Dimensions>
+        <Description>PAINT AND RELATED MATERIALS HS CODE 32089090</Description>
+        <Marks>VALEO / PO 55090104</Marks>
+        <Stackable>No</Stackable>
+        <ContainerNumber>MSKU1234567</ContainerNumber>
+        <SealNumber>018026</SealNumber>
+        <TareWeight>2200</TareWeight>
+        <CargoDetail sequence="1">
+          <Quantity>40</Quantity>
+          <PackagingType>DRUM</PackagingType>
+          <GrossWeight>4200.00</GrossWeight>
+          <NetWeight>3600.00</NetWeight>
+          <Volume>16.200</Volume>
+          <Dimensions>60x60x90 cm</Dimensions>
+          <Description>PAINT</Description>
+          <Marks>UN 1263</Marks>
+          <Stackable>Yes</Stackable>
+          <DangerousGoods>
+            <DGD>
+              <UNNumber>1263</UNNumber>
+              <Class>3</Class>
+              <PackingGroup>III</PackingGroup>
+              <ProperShippingName>PAINT</ProperShippingName>
+              <MarinePollutant>false</MarinePollutant>
+              <FlashPoint>23 C</FlashPoint>
+              <EMS>F-E, S-E</EMS>
+              <Contact>WAREHOUSE EBERN</Contact>
+              <Phone>+49 9521 100</Phone>
+              <NetWeight>90</NetWeight>
+              <GrossWeight>105</GrossWeight>
+              <Pieces>1</Pieces>
+              <PackageCode>1A1</PackageCode>
+              <PackageText>STEEL DRUM</PackageText>
+            </DGD>
+            <DGD>
+              <UNNumber>1263</UNNumber>
+              <Class>3</Class>
+              <PackingGroup>II</PackingGroup>
+              <ProperShippingName>PAINT RELATED MATERIAL</ProperShippingName>
+              <MarinePollutant>true</MarinePollutant>
+              <FlashPoint>18 C</FlashPoint>
+              <EMS>F-E, S-E</EMS>
+              <Contact>WAREHOUSE EBERN</Contact>
+              <Phone>+49 9521 100</Phone>
+              <NetWeight>20</NetWeight>
+              <GrossWeight>28</GrossWeight>
+              <Pieces>4</Pieces>
+              <PackageCode>3H1</PackageCode>
+              <PackageText>PLASTIC JERRICAN</PackageText>
+            </DGD>
+          </DangerousGoods>
+        </CargoDetail>
+      </CargoDetail>
+      <CargoDetail sequence="2">
+        <Quantity>2</Quantity>
+        <PackagingType>PALLET</PackagingType>
+        <GrossWeight>640.00</GrossWeight>
+        <NetWeight>580.00</NetWeight>
+        <Volume>2.400</Volume>
+        <Dimensions>120x80x100 cm</Dimensions>
+        <Description>SPARE PARTS HS CODE 87089390</Description>
+        <Marks>INVOICE 96285920</Marks>
+        <Stackable>Yes</Stackable>
+        <DangerousGoods>No</DangerousGoods>
+      </CargoDetail>
+    </CargoDetails>
+  </ServiceRequested>
+  <Routes>
+    <Route>
+      <Key>pre_carriage</Key>
+      <Mode>Truck</Mode>
+      <LoadType>LTL</LoadType>
+      <MBL>266152341</MBL>
+      <Pickup>
+        <Address>
+          <Line>VALEO POWERTRAIN GMBH</Line>
+          <Line>ANDREAS-HUMANN-STR. 2</Line>
+          <Line>96106 EBERN</Line>
+          <Line>GERMANY</Line>
+        </Address>
+        <Reference>10789879-10789903</Reference>
+        <Date>05/Mar/2026</Date>
+        <TimeFrom>06:00</TimeFrom>
+        <TimeTo>18:00</TimeTo>
+      </Pickup>
+      <Delivery>
+        <Address>
+          <Line>EUROGATE CONTAINER TERMINAL</Line>
+          <Line>AM BALLINKAI 1</Line>
+          <Line>21129 HAMBURG</Line>
+          <Line>GERMANY</Line>
+        </Address>
+        <Reference>GATE-14</Reference>
+        <Date>06/Mar/2026</Date>
+        <TimeFrom>08:00</TimeFrom>
+        <TimeTo>12:00</TimeTo>
+      </Delivery>
+      <POLId>92</POLId>
+      <POL>HAM - HAMBURG, GERMANY</POL>
+      <POLLocode>DEHAM</POLLocode>
+      <PODId>734</PODId>
+      <POD>VER - VERACRUZ, MEXICO</POD>
+      <PODLocode>MXVER</PODLocode>
+      <Vessel>MAERSK FELIXSTOWE</Vessel>
+      <Provider>DACHSER SE</Provider>
+      <ETD>2026-03-06 00:00:00.000</ETD>
+      <ETA>2026-03-06 00:00:00.000</ETA>
+      <TruckFreightRate>EUR 420.00</TruckFreightRate>
+      <FreeDays>2</FreeDays>
+      <DeadlineCargo>2026-03-05 18:00:00.000</DeadlineCargo>
+      <DeadlineDraft>2026-03-05 12:00:00.000</DeadlineDraft>
+      <DeadlineVGM>2026-03-05 16:00:00.000</DeadlineVGM>
+      <CarrierBooking>TRK-77821</CarrierBooking>
+      <TransportProviderId>2201</TransportProviderId>
+      <HBLs>
+        <HBL>
+          <Number>DEHA26090011</Number>
+          <CargoDetails>
+            <CargoDetail sequence="1">
+              <Quantity>1</Quantity>
+              <PackagingType>20' DV</PackagingType>
+              <GrossWeight>4200.00</GrossWeight>
+              <NetWeight>3800.00</NetWeight>
+              <Volume>18.400</Volume>
+              <Dimensions>605x243x259 cm</Dimensions>
+              <Description>PAINT AND RELATED MATERIALS HS CODE 32089090</Description>
+              <Marks>VALEO / PO 55090104</Marks>
+              <ContainerNumber>MSKU1234567</ContainerNumber>
+              <SealNumber>018026</SealNumber>
+              <TareWeight>2200</TareWeight>
+              <CargoItemDetails>
+                <CargoItemDetail sequence="1">
+                  <Quantity>40</Quantity>
+                  <PackagingType>DRUM</PackagingType>
+                  <GrossWeight>4200.00</GrossWeight>
+                  <NetWeight>3600.00</NetWeight>
+                  <Volume>16.200</Volume>
+                  <Dimensions>60x60x90 cm</Dimensions>
+                  <Description>PAINT</Description>
+                  <Marks>UN 1263</Marks>
+                  <DangerousGoods>
+                    <DGD>
+                      <UNNumber>1263</UNNumber>
+                      <Class>3</Class>
+                      <PackingGroup>III</PackingGroup>
+                      <ProperShippingName>PAINT</ProperShippingName>
+                      <MarinePollutant>false</MarinePollutant>
+                      <FlashPoint>23 C</FlashPoint>
+                      <EMS>F-E, S-E</EMS>
+                      <Contact>WAREHOUSE EBERN</Contact>
+                      <Phone>+49 9521 100</Phone>
+                      <NetWeight>90</NetWeight>
+                      <GrossWeight>105</GrossWeight>
+                      <Pieces>1</Pieces>
+                      <PackageCode>1A1</PackageCode>
+                      <PackageText>STEEL DRUM</PackageText>
+                    </DGD>
+                  </DangerousGoods>
+                  <ContainerNumber>MSKU1234567</ContainerNumber>
+                  <SealNumber>018026</SealNumber>
+                  <TareWeight>2200</TareWeight>
+                </CargoItemDetail>
+              </CargoItemDetails>
+            </CargoDetail>
+          </CargoDetails>
+        </HBL>
+      </HBLs>
+    </Route>
+  </Routes>
+  <Services>
+    <Service>
+      <ServiceID>eb3ce25e-3e14-4627-8a64-d6df60840314</ServiceID>
+      <Key>sea_fcl</Key>
+      <Mode>Sea</Mode>
+      <LoadType>FCL</LoadType>
+      <MBL>266152341</MBL>
+      <Pickup>
+        <Company>VALEO POWERTRAIN GMBH</Company>
+        <Address>
+          <Company>VALEO POWERTRAIN GMBH</Company>
+          <Street>Andreas-Humann-Str. 2</Street>
+          <PostalCode>96106</PostalCode>
+          <City>Ebern</City>
+          <State>Bayern</State>
+          <Country>Germany</Country>
+          <CountryCode>DE</CountryCode>
+        </Address>
+        <Reference>10789879-10789903</Reference>
+        <Date>05/Mar/2026</Date>
+        <TimeFrom>06:00</TimeFrom>
+        <TimeTo>18:00</TimeTo>
+      </Pickup>
+      <Delivery>
+        <Company>FTE MEXICANA SA DE CV</Company>
+        <Address>
+          <Company>FTE MEXICANA SA DE CV</Company>
+          <Street>Km 14.5 Autopista Puebla Orizaba</Street>
+          <PostalCode>72990</PostalCode>
+          <City>Amozoc</City>
+          <State>Puebla</State>
+          <Country>Mexico</Country>
+          <CountryCode>MX</CountryCode>
+        </Address>
+        <Reference>26DEMX90001</Reference>
+        <Date>02/Apr/2026</Date>
+        <TimeFrom>08:00</TimeFrom>
+        <TimeTo>16:00</TimeTo>
+      </Delivery>
+      <POLId>92</POLId>
+      <POL>HAM - HAMBURG, GERMANY</POL>
+      <POLLocode>DEHAM</POLLocode>
+      <PODId>734</PODId>
+      <POD>VER - VERACRUZ, MEXICO</POD>
+      <PODLocode>MXVER</PODLocode>
+      <Vessel>MAERSK FELIXSTOWE</Vessel>
+      <Provider>MAERSK LINE</Provider>
+      <ETD>2026-03-15 00:00:00.000</ETD>
+      <ETA>2026-03-30 00:00:00.000</ETA>
+      <TruckFreightRate>EUR 850.00</TruckFreightRate>
+      <FreeDays>7</FreeDays>
+      <DeadlineCargo>2026-03-12 12:00:00.000</DeadlineCargo>
+      <DeadlineDraft>2026-03-13 16:00:00.000</DeadlineDraft>
+      <DeadlineVGM>2026-03-13 12:00:00.000</DeadlineVGM>
+      <CarrierBooking>266152341</CarrierBooking>
+      <TransportProviderId>1349</TransportProviderId>
+      <CargoDetails>
+        <CargoDetail sequence="1">
+          <Quantity>1</Quantity>
+          <PackagingType>20' DV</PackagingType>
+          <GrossWeight>4200.00</GrossWeight>
+          <NetWeight>3800.00</NetWeight>
+          <Volume>18.400</Volume>
+          <Dimensions>605x243x259 cm</Dimensions>
+          <Description>PAINT AND RELATED MATERIALS HS CODE 32089090</Description>
+          <Marks>VALEO / PO 55090104</Marks>
+          <ContainerNumber>MSKU1234567</ContainerNumber>
+          <SealNumber>018026</SealNumber>
+          <TareWeight>2200</TareWeight>
+          <CargoItemDetails>
+            <CargoItemDetail sequence="1">
+              <Quantity>40</Quantity>
+              <PackagingType>DRUM</PackagingType>
+              <GrossWeight>4200.00</GrossWeight>
+              <NetWeight>3600.00</NetWeight>
+              <Volume>16.200</Volume>
+              <Dimensions>60x60x90 cm</Dimensions>
+              <Description>PAINT</Description>
+              <Marks>UN 1263</Marks>
+              <DangerousGoods>
+                <DGD>
+                  <UNNumber>1263</UNNumber>
+                  <Class>3</Class>
+                  <PackingGroup>III</PackingGroup>
+                  <ProperShippingName>PAINT</ProperShippingName>
+                  <MarinePollutant>false</MarinePollutant>
+                  <FlashPoint>23 C</FlashPoint>
+                  <EMS>F-E, S-E</EMS>
+                  <Contact>WAREHOUSE EBERN</Contact>
+                  <Phone>+49 9521 100</Phone>
+                  <NetWeight>90</NetWeight>
+                  <GrossWeight>105</GrossWeight>
+                  <Pieces>1</Pieces>
+                  <PackageCode>1A1</PackageCode>
+                  <PackageText>STEEL DRUM</PackageText>
+                </DGD>
+              </DangerousGoods>
+            </CargoItemDetail>
+          </CargoItemDetails>
+        </CargoDetail>
+      </CargoDetails>
+      <HBLs>
+        <HBL>
+          <Number>DEHA26090011</Number>
+          <CargoDetails>
+            <CargoDetail sequence="1">
+              <Quantity>1</Quantity>
+              <PackagingType>20' DV</PackagingType>
+              <GrossWeight>4200.00</GrossWeight>
+              <Description>PAINT AND RELATED MATERIALS HS CODE 32089090</Description>
+              <ContainerNumber>MSKU1234567</ContainerNumber>
+            </CargoDetail>
+          </CargoDetails>
+        </HBL>
+      </HBLs>
+    </Service>
+  </Services>
+  <Terms>
+    <Incoterm>CIP</Incoterm>
+    <Insurance>Not covered</Insurance>
+  </Terms>
+  <CommentsAndTerms language="English">
+    <Comments>Pickup window confirmed with the shipper. VGM to be filed by the trucker.</Comments>
+    <TermsContent>Standard Schryver terms and conditions apply. Insurance is not covered unless stated above.</TermsContent>
+  </CommentsAndTerms>
+  <CartaPorte>
+    <Ubicaciones>
+      <Origen>
+        <Contacto>JUAN PEREZ</Contacto>
+        <Telefono>5512345678</Telefono>
+        <NombreComercial>VALEO POWERTRAIN GMBH</NombreComercial>
+        <TaxId>DE123456789</TaxId>
+        <Direccion>ANDREAS-HUMANN-STR. 2, 96106 EBERN, GERMANY</Direccion>
+      </Origen>
+      <Destino>
+        <Contacto>MARIA LOPEZ</Contacto>
+        <Telefono>2221234567</Telefono>
+        <NombreComercial>FTE MEXICANA SA DE CV</NombreComercial>
+        <TaxId>FME850101AB1</TaxId>
+        <Direccion>KM 14.5 AUTOPISTA PUEBLA ORIZABA, 72990 AMOZOC, PUEBLA</Direccion>
+      </Destino>
+    </Ubicaciones>
+    <ReferenciaCotizacion>COT-2026-7781</ReferenciaCotizacion>
+    <InstruccionesEspeciales>Entregar en bodega con cita. No estibar sobre la carga IMO.</InstruccionesEspeciales>
+    <Mercancias>
+      <Mercancia detalleCargaId="19001">
+        <ClaveProducto>31201600</ClaveProducto>
+        <DescripcionSAT>Pinturas</DescripcionSAT>
+        <UnidadMedida>H87</UnidadMedida>
+        <FraccionArancelaria>32089099</FraccionArancelaria>
+        <Pedimento>26 24 3456 7000123</Pedimento>
+        <MaterialPeligroso>
+          <NumeroUN>1263</NumeroUN>
+          <TipoEmbalaje>1A1</TipoEmbalaje>
+        </MaterialPeligroso>
+        <FolioFiscal>a1b2c3d4-e5f6-7890-abcd-ef1234567890</FolioFiscal>
+      </Mercancia>
+    </Mercancias>
+  </CartaPorte>
+</ServiceRequest>

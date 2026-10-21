@@ -99,6 +99,16 @@ Definitive carriage rejections have the same cleanup contract in offer, HANDSHAK
 
 Read the returned JSON, summarize downloaded documents, request any due business decision, and launch another watch only if the railway expects a further response.
 
+## Logic TMS transport order (explicit opt-in)
+
+Only when the human mentions **Logic TMS**, **Schryver TMS**, **transportOrder**, or **ServiceRequest v3 XML**:
+
+1. Read `references/transport-order.md`.
+2. Run `transport-order-contract.ts` (via `run-tool.mjs`) for XSD/example paths; optional `--validate <file>` when `xmllint` is installed.
+3. Generate XML under the peer (e.g. `outbox/`). Submitting to TMS is out of plugin scope unless a future TMS tool exists.
+
+This is separate from HANDSHAKE (`create-shipment.ts` uses Heroes JSON, not ServiceRequest XML). Run `list-heroes-tools.ts` to discover all bundled tools.
+
 ## Boundaries
 
 Current scope is HANDSHAKE, solicited one-to-one RFQ, and filing a held quote as an OFFER. Instantiating an offer into a shipment (`POST /journeys/{offerId}/instantiate`) is out of scope: it requires `RFQ` + `ACCEPTED` on every service, and a direct-quote filing books nothing. There is no MCP server, hosted authentication flow, dashboard, hook, or subagent requirement. Two counterparties must use separate peer workspaces and credentials; never impersonate both sides from one peer. See `references/architecture.md`, `references/domain-model.md`, and `references/portability.md`.

@@ -255,6 +255,29 @@ if (
   errors.push('shared skill does not require onboarding in the first new plugin session');
 }
 
+const transportOrderContract = [
+  join(pluginRoot, 'skills', 'heroes-agent', 'references', 'transport-order.md'),
+  join(
+    pluginRoot,
+    'skills',
+    'heroes-agent',
+    'references',
+    'service-request-v3',
+    'ServiceRequest.v3.xsd',
+  ),
+  join(
+    pluginRoot,
+    'skills',
+    'heroes-agent',
+    'references',
+    'service-request-v3',
+    'ServiceRequest.v3.full-example.xml',
+  ),
+];
+for (const path of transportOrderContract) {
+  if (!existsSync(path)) errors.push(`missing transport-order contract: ${relative(repoRoot, path)}`);
+}
+
 if (errors.length) {
   if (headCommit) console.log(`HEAD commit: ${headCommit}`);
   console.log(`Scan scope: ${files.length} ${scanMode}.`);

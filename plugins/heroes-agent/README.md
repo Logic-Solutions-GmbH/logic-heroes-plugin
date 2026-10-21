@@ -44,7 +44,8 @@ plugins/heroes-agent/
   .cursor-plugin/plugin.json      Cursor adapter
   skills/heroes-agent/
     SKILL.md                      shared portable workflow
-    references/                  railway, domain, rate, portability details
+    references/                  railway, domain, rate, portability, ServiceRequest v3 (TMS)
+    references/service-request-v3/  XSD + full example for transportOrder XML (opt-in)
     scripts/heroes-tools/        shared TypeScript runtime and offline tests
     assets/peer-template/        secret-free peer workspace skeleton
   scripts/
