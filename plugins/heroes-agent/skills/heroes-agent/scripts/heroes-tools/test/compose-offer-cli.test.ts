@@ -374,8 +374,54 @@ test('a dry run prints the three wire bodies and writes nothing', async () => {
       issuer: 'hapag-lloyd',
       recipient: 'hj-schryver-de',
     });
+    assert.equal('carriage' in printed.serviceCreates[0].body, false);
     assert.equal(printed.advance.body.strategyKey, 'DIRECT_QUOTE');
     assert.equal(printed.advance.body.targetTenantKey, 'hapag-lloyd');
+  });
+});
+
+test('a dry-run offer carries an FCL declaration in the exact service wire body', async () => {
+  await withStub('heroes-compose-offer-carriage-', {}, async ({ workspace, port, requests }) => {
+    const spec = hapagSpec();
+    (spec.services as any[])[0].carriage = {
+      containerAllocation: 'exclusive',
+      vehicleType: 'vessel',
+      vehicleAllocation: 'shared',
+      handlingMethod: 'lift_on_lift_off',
+    };
+    const specPath = writeSpec(workspace, spec);
+    const result = await runTool(workspace, port, ['compose-offer.ts', specPath, '--dry-run']);
+
+    assert.equal(result.code, 0, result.stderr || result.stdout);
+    assert.deepEqual(writeRequests(requests), []);
+    const printed = JSON.parse(result.stdout.slice(result.stdout.indexOf('{')));
+    assert.deepEqual(printed.serviceCreates[0].body.carriage, {
+      containerAllocation: 'exclusive',
+      vehicleType: 'vessel',
+      vehicleAllocation: 'shared',
+      handlingMethod: 'lift_on_lift_off',
+    });
+  });
+});
+
+test('carriage on a non-transport offer service is refused before the first request', async () => {
+  await withStub('heroes-compose-offer-carriage-key-', {}, async ({ workspace, port, requests }) => {
+    const spec = hapagSpec();
+    (spec.services as any[])[0].serviceKey = 'warehouse_handling';
+    (spec.services as any[])[0].carriage = {
+      containerAllocation: 'exclusive',
+      vehicleType: 'vessel',
+      vehicleAllocation: 'shared',
+      handlingMethod: 'lift_on_lift_off',
+    };
+    const specPath = writeSpec(workspace, spec);
+    const result = await runTool(workspace, port, ['compose-offer.ts', specPath]);
+
+    assert.equal(result.code, 4, result.stderr || result.stdout);
+    assert.equal(requests.length, 0);
+    const printed = JSON.parse(result.stdout.slice(result.stdout.indexOf('{')));
+    assert.equal(printed.reason, 'invalid_spec');
+    assert.match(printed.issues.join('\n'), /carriage is not allowed.*warehouse_handling/);
   });
 });
 
@@ -571,6 +617,37 @@ test('an advance the server refused releases the attempt whole', async () => {
       assert.deepEqual(printed.releasedServices, ['offer-service-1']);
       assert.equal(printed.releasedJourney, 'offer-journey-1');
       assert.deepEqual(printed.failures, []);
+    },
+  );
+});
+
+test('server CARRIAGE_REQUIRED is exit 9 and releases the journey created by the run', async () => {
+  await withStub(
+    'heroes-compose-offer-carriage-required-',
+    {
+      serviceCreate: (response) => {
+        response.writeHead(400, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({
+          success: false,
+          error: { code: 'CARRIAGE_REQUIRED', message: 'A transport service needs carriage' },
+        }));
+      },
+    },
+    async ({ workspace, port, requests }) => {
+      const specPath = writeSpec(workspace, hapagSpec());
+      const result = await runTool(workspace, port, ['compose-offer.ts', specPath]);
+
+      assert.equal(result.code, 9, result.stderr || result.stdout);
+      assert.deepEqual(writeRequests(requests).map((request) => `${request.method} ${request.url}`), [
+        'POST /api/journeys',
+        'POST /api/services',
+        'DELETE /api/journeys/offer-journey-1',
+      ]);
+      const printed = JSON.parse(result.stdout.slice(result.stdout.indexOf('{')));
+      assert.equal(printed.reason, 'service_create_rejected');
+      assert.match(printed.detail, /CARRIAGE_REQUIRED/);
+      assert.equal(printed.releasedJourney, 'offer-journey-1');
+      assert.deepEqual(printed.releasedServices, []);
     },
   );
 });

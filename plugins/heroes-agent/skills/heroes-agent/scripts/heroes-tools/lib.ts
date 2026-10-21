@@ -106,6 +106,18 @@ export class ApiError extends Error {
   }
 }
 
+/** Read a stable Heroes error code from either supported error envelope. */
+export function apiErrorCode(error: unknown): string | undefined {
+  if (!(error instanceof ApiError) || !error.body || typeof error.body !== 'object') return undefined;
+  const body = error.body as Record<string, unknown>;
+  if (typeof body.code === 'string') return body.code;
+  const nested = body.error;
+  if (nested && typeof nested === 'object' && typeof (nested as Record<string, unknown>).code === 'string') {
+    return (nested as Record<string, unknown>).code as string;
+  }
+  return undefined;
+}
+
 interface ApiOptions {
   method: 'GET' | 'POST' | 'PUT' | 'DELETE';
   path: string;
@@ -163,7 +175,9 @@ async function requestJson<T>(
     // or reject a handshake request") — surface them verbatim. Heroes also
     // sends a `code` field (`SERVICE_COLLABORATION_CONFLICT`); include it so
     // CLI callers can name the refusal without reading the body.
-    const code = typeof json?.code === 'string' ? json.code.trim() : '';
+    const code =
+      (typeof json?.code === 'string' ? json.code.trim() : '') ||
+      (typeof json?.error?.code === 'string' ? json.error.code.trim() : '');
     const detail =
       apiErrorDetail(json?.message ?? json?.error ?? json) ??
       (text && !json ? text : undefined) ??
@@ -182,6 +196,37 @@ async function requestJson<T>(
 export async function api<T = any>(config: Config, opts: ApiOptions): Promise<T> {
   const { data } = await requestJson<T>(config, opts);
   return data;
+}
+
+export interface JourneyReleaseResult {
+  releasedJourney: string | null;
+  failures: string[];
+}
+
+/**
+ * Release a journey minted by the current command without hiding the outcome
+ * that prompted cleanup. A failed release is returned for reconciliation.
+ */
+export async function releaseCreatedJourney(
+  config: Config,
+  args: { journeyId: string; apiKey: string; createdJourney: boolean },
+): Promise<JourneyReleaseResult> {
+  if (!args.createdJourney) return { releasedJourney: null, failures: [] };
+  try {
+    await api(config, {
+      method: 'DELETE',
+      path: `/journeys/${args.journeyId}`,
+      apiKey: args.apiKey,
+    });
+    return { releasedJourney: args.journeyId, failures: [] };
+  } catch (error) {
+    return {
+      releasedJourney: null,
+      failures: [
+        `journey ${args.journeyId}: ${error instanceof Error ? error.message : String(error)}`,
+      ],
+    };
+  }
 }
 
 export interface ServiceCollaborator {
@@ -416,6 +461,34 @@ export interface ServiceSnapshot {
   instances: StrategyInstance[];
   events: ServiceEvent[];
   attachments: Attachment[];
+}
+
+export interface ServiceCarriageView {
+  carriage: Record<string, unknown> | null;
+  carriageConsistency: Record<string, unknown> | null;
+}
+
+/** Read the declared carriage promise and Heroes' evidence-based consistency view. */
+export async function fetchServiceCarriage(
+  config: Config,
+  apiKey: string,
+  serviceId: string,
+): Promise<ServiceCarriageView> {
+  const service = await api<Record<string, unknown>>(config, {
+    method: 'GET',
+    path: `/services/${serviceId}`,
+    apiKey,
+  });
+  return {
+    carriage:
+      service.carriage && typeof service.carriage === 'object'
+        ? (service.carriage as Record<string, unknown>)
+        : null,
+    carriageConsistency:
+      service.carriageConsistency && typeof service.carriageConsistency === 'object'
+        ? (service.carriageConsistency as Record<string, unknown>)
+        : null,
+  };
 }
 
 /**

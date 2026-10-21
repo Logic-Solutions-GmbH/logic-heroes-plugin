@@ -49,7 +49,7 @@ If a peer already exists at `<tenant-key>/` or at the older `run/<tenant-key>/`,
 
 ## HANDSHAKE
 
-- Maker: inspect and stage the booking, choose the service, then run `create-shipment.ts <payload-folder> --service-key <chosen-key> --target example-taker [--collaborator example-collaborator]`. Repeat `--collaborator` for each tenant. The tool adds each collaborator after HANDSHAKE. Record the returned IDs and watch the service.
+- Maker: inspect and stage the booking, choose the service, then run `create-shipment.ts <payload-folder> --service-key <chosen-key> --target example-taker [--carriage <json-file>] [--collaborator example-collaborator]`. Repeat `--collaborator` for each tenant. Put carriage in a file, never shell text. The tool adds each collaborator after HANDSHAKE. Record the returned IDs and watch the service.
 - To add a collaborator on an existing service, run `add-service-collaborator.ts <service-id> --tenant-key example-collaborator`. Repeat `--tenant-key` for each tenant. This calls `POST /services/{serviceId}/collaborators` with `{ "collaboratorTenantKey": "example-collaborator" }`. Do not send a collaborator on `POST /services`; `participantTenantKeys` has no collaborator role.
 - If journey creation succeeds but service creation fails, rerun with `--journey-id <id>` to skip duplicate journey creation. Do not use this recovery after service creation succeeds; it cannot prevent a duplicate service.
 - Taker: discover with `list-requests.ts --direction incoming`, inspect with `service-status.ts <service-id>`, obtain the human's accept/reject decision, then run `accept-strategy.ts <service-id> --provider-ref <ref> [payload-folder]` or `reject-strategy.ts <service-id> --reason <text>`.
@@ -59,7 +59,7 @@ Read `references/handshake.md` for legal steps and guards.
 
 ## Solicited RFQ
 
-- Requester/maker: stage shipping instructions, choose the service, and run `request-quotation.ts <payload-folder> --service-key <chosen-key> --target <provider-key>`. After a quote, summarize its terms and ask whether to accept, counter, or reject. Run `counter-quotation.ts` or `accept-quotation.ts` only from that decision.
+- Requester/maker: stage shipping instructions, choose the service, and run `request-quotation.ts <payload-folder> --service-key <chosen-key> --target <provider-key> [--carriage <json-file>]`. Put carriage in a file, never shell text. After a quote, summarize its terms and ask whether to accept, counter, or reject. Run `counter-quotation.ts` or `accept-quotation.ts` only from that decision.
 - Record the returned service ID and hand it to the provider through the existing business channel. The current Heroes requests endpoint does not enumerate RFQ strategies, so `list-requests.ts` is HANDSHAKE-only. The provider inspects the known ID with `service-status.ts <service-id>`; this is not automatic RFQ discovery.
 - If RFQ journey creation succeeds but service creation fails, rerun with `--journey-id <id>`. Do not use this recovery after service creation succeeds; it cannot prevent a duplicate service.
 - Provider peer: inspect the request and map it to Heroes offer facts. Run `find-rate.ts` with the request's `--service-key`, locations, date, asset, participant, and strategy facts that the rule requires. Accept the request's existing key even when it is legacy. Exit `0` means exactly one complete, approved, current, valid rule applies. Exit `3` means no automatic result; no match, missing facts, or ambiguity requires human judgment. Exit `4` means invalid query or catalog data. Exit `2` means the rate index or Heroes catalog is missing. JSON returns at most 20 compact candidate summaries; check `candidateTotal` and `candidatesTruncated`. Never choose the cheapest candidate. Ask for pricing judgment for every nonzero result or below-rate counter. Stage one quote file and run `quote-request.ts <service-id> <quote-folder> --provider-ref <ref>`.
@@ -75,15 +75,23 @@ Read `references/rfq.md` and `references/rate-book.md` before moving an RFQ.
 - `origin` / `destination` are the ends of the whole service — an inland door on a door-to-door quote. `port_of_loading` / `port_of_discharge` are the main leg's ports; on a door-to-port quote the load port is neither the origin nor a transshipment. `transshipment` is a genuine mid-water vessel change.
 - Prices never ride the facets. `amount` is a number; a `% of another line` is a computed amount plus optional `meta`, which Heroes stores and does not evaluate.
 - Build the spec from the document, then run `--dry-run` first: it performs every read and check and prints the exact wire bodies without writing. Ask the human for any price you had to infer.
+- For every transport service, read carriage from the quote using the table in `references/offer.md`. Put it in that service's `carriage` object. A quote mixing FCL and LCL is two services.
 - Stop rather than substitute when the issuer has no Heroes tenant (`issuer_not_in_network`, exit `5`).
 - Read the exit code as a statement about what remains in Heroes. Nothing remains on `2`, `4`, `5`, `6`, or `9` — `6` and `9` mean the run created something and then released it. The offer is recorded on `0` and on `8`, where only the document is missing: re-attach with `upload-attachment.ts <event-id> <folder>`. **`7` and `10` mean state may remain and a human has to look**: never rerun the command, because a retry mints a second offer. Check what is actually there with `POST /offers/search` or the Heroes UI, then resume with `--journey-id` or release by hand.
 - `--journey-id` resumes exactly one case: the journey was minted and service creation had not succeeded. The helper refuses any other target, because the batch advance moves every service on the journey, not only the ones it created.
 
 Read `references/offer.md` for the railway, the spec shape, the exit codes, and the worked example.
 
+Definitive carriage rejections have the same cleanup contract in offer, HANDSHAKE, and RFQ creation:
+
+| Heroes code | Exit | What remains |
+| --- | --- | --- |
+| `CARRIAGE_NOT_ALLOWED` | `9` | nothing created by the run; it releases any journey/service it made |
+| `CARRIAGE_REQUIRED` | `9` | nothing created by the run; it releases any journey/service it made |
+
 ## Inspect and watch
 
-- `service-status.ts <service-id> [--download]` folds current strategies, events, and attachments into one view.
+- `service-status.ts <service-id> [--download]` shows the service's `carriage` and `carriageConsistency`, then folds current strategies, events, and attachments into one view. Read FCL/LCL/FTL/LTL there instead of guessing from the key name or packaging text.
 - `upload-attachment.ts <event-id> <payload-folder>` adds one multipart attachment to an existing event without changing its strategy step. Use it to prove attachment-only watcher changes.
 - After an outbound nonterminal move, run `watch-service.ts <service-id> --interval <seconds> --timeout <seconds> --download-dir <directory>`.
 - The watcher compares both strategy steps and attachment IDs because transition and upload are non-atomic. Exit `0` means change detected and new documents downloaded; exit `3` means timeout with no change. Preserve these meanings.

@@ -12,7 +12,7 @@ WITHDRAWN, or EXPIRED when Heroes permits the actor's transition.
 
 | Step | Actor | Bundled tool |
 | --- | --- | --- |
-| REQUESTED | requester/maker | `request-quotation.ts <payload-folder> --target <provider-key> --service-key <chosen-key>` |
+| REQUESTED | requester/maker | `request-quotation.ts <payload-folder> --target <provider-key> --service-key <chosen-key> [--carriage <json-file>]` |
 | QUOTED / re-QUOTED | provider/taker | `quote-request.ts <service-id> <quote-folder> --provider-ref <ref>` |
 | COUNTERED | requester/maker | `counter-quotation.ts <service-id> --message <text>` |
 | ACCEPTED | requester/maker | `accept-quotation.ts <service-id> --message <text>` |
@@ -20,6 +20,10 @@ WITHDRAWN, or EXPIRED when Heroes permits the actor's transition.
 The requester cannot quote and the provider cannot counter or accept. `providerRef` is required to quote. Price travels in the quote attachment or counter message; it is not a dedicated Heroes price field.
 
 The current Heroes requests endpoint does not enumerate RFQ strategies. After `request-quotation.ts` succeeds, the requester must hand its returned service ID to the provider through the existing business channel. The provider then runs `service-status.ts <service-id>` before any response. `list-requests.ts` remains HANDSHAKE-only; this known-ID handoff is a current API limitation, not automatic RFQ discovery.
+
+For a transport service, the requester supplies `--carriage <json-file>`. The provider reads
+`carriage` and `carriageConsistency` in `service-status.ts` and must not guess FCL/LCL/FTL/LTL
+from the service key or packaging text.
 
 Before quoting, search the local rate book. An unambiguous filed match may be used automatically. A missing/stale/ambiguous rate or below-rate counter is a human pricing decision.
 
