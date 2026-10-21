@@ -850,7 +850,9 @@ export function discoverRate(
   // A legacy transport rule can still stand on its own. Once a carriage-qualified
   // rule also applies, however, treating the broad legacy rule as complete would
   // either recreate FCL/LCL ambiguity or silently select an under-specified rate.
-  const carriageQualifiedRuleApplies = assessed.some((candidate) => candidate.rule.carriage);
+  const carriageQualifiedRuleApplies = assessed.some(
+    (candidate) => candidate.rule.carriage && candidate.ineligibleReasons.length === 0,
+  );
   if (carriageQualifiedRuleApplies && TRANSPORT_SERVICE_KEYS.has(query.serviceKey)) {
     for (const candidate of assessed) {
       if (!candidate.rule.carriage) candidate.missingFacts.push('rate rule carriage');

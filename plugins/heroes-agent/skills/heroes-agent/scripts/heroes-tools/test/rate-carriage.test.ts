@@ -141,6 +141,28 @@ test('a 1.0 transport card remains readable but cannot hide a qualified rule', (
   assert.equal(result.candidates.find((candidate) => candidate.cardId === 'fcl')?.class, 'eligible');
 });
 
+test('an ineligible carriage rule does not demote an approved legacy rate', () => {
+  const catalog = heroesCatalog('1.0');
+  const draftFcl = card('draft-fcl', catalog, fcl);
+  draftFcl.approval = { status: 'draft', approvedBy: '', approvedAt: '' };
+  const rates: RateCatalog = {
+    schemaVersion: '1.0',
+    rateCards: [card('legacy', catalog), draftFcl],
+  };
+
+  const result = discoverRate(rates, catalog, { ...baseQuery, carriage: fcl });
+  assert.equal(result.status, 'matched');
+  assert.equal(result.rate?.cardId, 'legacy');
+  assert.deepEqual(
+    result.candidates.find((candidate) => candidate.cardId === 'draft-fcl')?.ineligibleReasons,
+    ['rate card is not approved'],
+  );
+  assert.deepEqual(
+    result.candidates.find((candidate) => candidate.cardId === 'legacy')?.missingFacts,
+    [],
+  );
+});
+
 test('the CSV adapter preserves carriageJson while upgrading imports to 1.1', () => {
   const catalog = heroesCatalog('1.0');
   const carriageJson = JSON.stringify(fcl).replaceAll('"', '""');
