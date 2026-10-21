@@ -7,12 +7,12 @@
  *
  * Usage:
  *   npx tsx request-quotation.ts <payload-folder> --target <tenantKey> \
- *       [--journey-id <id>] [--service-key <key>] [--name <eventName>] \
+ *       --service-key <key> [--journey-id <id>] [--name <eventName>] \
  *       [--lo-code <UNLOCODE>]
  *
  * Example:
  *   npx tsx request-quotation.ts ./intake --target schryver-mx \
- *       --service-key ltl_pickup_origin --name "RFQ - Origin Pickup TSN-IOA"
+ *       --service-key inland_transport --name "RFQ - Origin Pickup TSN-IOA"
  */
 import {
   run,
@@ -31,17 +31,20 @@ run(async (config) => {
   const folder = positional[0];
   const target = flagString(flags, 'target');
   const existingJourneyId = flagString(flags, 'journey-id');
-  const serviceKey = flagString(flags, 'service-key') ?? 'ltl_pickup_origin';
+  const serviceKey = flagString(flags, 'service-key');
   const name = flagString(flags, 'name') ?? 'Quotation Request';
   const loCode = flagString(flags, 'lo-code');
 
   if ('journey-id' in flags && !existingJourneyId?.trim()) {
     throw new Error('--journey-id requires a value');
   }
+  if (!serviceKey?.trim()) {
+    throw new Error('--service-key requires a value');
+  }
   if (!folder || !target) {
     throw new Error(
       'Usage: npx tsx request-quotation.ts <payload-folder> --target <tenantKey> ' +
-        '[--journey-id <id>] [--service-key <key>] [--name <eventName>] ' +
+        '--service-key <key> [--journey-id <id>] [--name <eventName>] ' +
         '[--lo-code <UNLOCODE>]',
     );
   }

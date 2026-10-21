@@ -52,6 +52,10 @@ After the minimal fixes:
 - public-launcher tests cover request, quote and re-quote, counter, acceptance,
   and watcher download behavior.
 
+Update 2026-10-21 (#73): `request-quotation.ts` now requires an explicit
+`--service-key`, and new road work uses the canonical `inland_transport`.
+This run predates that change; `inland_transport` has no live RFQ proof yet.
+
 The pre-live full package gate passed 15 of 15 tests, typecheck, helper
 integration, and diff checks.
 

@@ -47,6 +47,11 @@ A separate red test expected the live-proven service key
 that test pass. Recovery then reused the existing journey and created the
 first HANDSHAKE without another orphan journey.
 
+Update 2026-10-21 (#73): `create-shipment.ts` now requires an explicit
+`--service-key`, and new road work uses the canonical `inland_transport`.
+This run predates that change; `inland_transport` has no live HANDSHAKE proof
+yet.
+
 ## Interaction A: tenant-a makes, tenant-b accepts
 
 Both peer views showed the same open request:

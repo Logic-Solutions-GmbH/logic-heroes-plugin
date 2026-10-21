@@ -8,7 +8,7 @@ INITIATED -> ACCEPTED
 
 | Step | Actor | Required value | Bundled tool |
 | --- | --- | --- | --- |
-| INITIATED | maker | `targetTenantKey` | `create-shipment.ts <payload-folder> --target example-taker [--collaborator example-collaborator]` |
+| INITIATED | maker | `targetTenantKey` | `create-shipment.ts <payload-folder> --target example-taker --service-key <chosen-key> [--collaborator example-collaborator]` |
 | (after HANDSHAKE) | maker | `collaboratorTenantKey` | `add-service-collaborator.ts <service-id> --tenant-key example-collaborator` |
 | ACCEPTED | named taker | `providerRef` | `accept-strategy.ts <service-id> --provider-ref <ref> [payload-folder]` |
 | REJECTED | named taker | none | `reject-strategy.ts <service-id> [--reason <text>]` |

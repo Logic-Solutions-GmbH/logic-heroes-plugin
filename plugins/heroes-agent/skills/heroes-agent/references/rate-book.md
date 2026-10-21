@@ -56,7 +56,7 @@ Use Heroes offer facts in the query:
 
 ```text
 node <plugin-root>/scripts/run-tool.mjs find-rate.ts \
-  --service-key fcl_freight_forwarding \
+  --service-key oceanfreight \
   --origin NLRTM --dest USNYC \
   --asset-type container --asset-subtype 40HC \
   --date 2026-09-01 --json
