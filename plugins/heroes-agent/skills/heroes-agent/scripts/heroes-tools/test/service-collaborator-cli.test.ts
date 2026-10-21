@@ -256,6 +256,8 @@ test('create-shipment without --collaborator makes the same requests as before',
         folder,
         '--target',
         'example-taker',
+        '--service-key',
+        'inland_transport',
       ]);
 
       assert.equal(result.code, 0, result.stderr || result.stdout);
@@ -303,6 +305,8 @@ test('understanding: a collaborator is a follow-up POST after HANDSHAKE, not a c
         folder,
         '--target',
         'example-taker',
+        '--service-key',
+        'inland_transport',
         '--collaborator',
         'example-collaborator',
         '--collaborator',
@@ -370,6 +374,8 @@ test('create-shipment collaborator 404 leaves HANDSHAKE in place and names the r
         folder,
         '--target',
         'example-taker',
+        '--service-key',
+        'inland_transport',
         '--collaborator',
         'example-collaborator',
         '--collaborator',

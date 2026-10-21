@@ -217,7 +217,7 @@ This command uses the multipart attachment endpoint. It is the public validation
 If journey creation succeeds but a later shipment step fails, resume on that journey without creating a duplicate:
 
 ```text
-node <plugin-root>/scripts/run-tool.mjs create-shipment.ts <payload-folder> --target <tenant-key> --journey-id <journey-id>
+node <plugin-root>/scripts/run-tool.mjs create-shipment.ts <payload-folder> --target <tenant-key> --service-key <chosen-key> --journey-id <journey-id>
 ```
 
 The resume option skips `POST /journeys`. It creates the service and starts HANDSHAKE on the supplied journey. Use it only when service creation did not succeed; it cannot prevent a duplicate service after a later partial failure.
@@ -225,7 +225,7 @@ The resume option skips `POST /journeys`. It creates the service and starts HAND
 RFQ creation has the same journey-only recovery boundary:
 
 ```text
-node <plugin-root>/scripts/run-tool.mjs request-quotation.ts <payload-folder> --target <provider-key> --journey-id <journey-id>
+node <plugin-root>/scripts/run-tool.mjs request-quotation.ts <payload-folder> --target <provider-key> --service-key <chosen-key> --journey-id <journey-id>
 ```
 
 Use it only when RFQ service creation did not succeed. It skips duplicate journey creation, but it cannot prevent a duplicate service after a later partial failure.

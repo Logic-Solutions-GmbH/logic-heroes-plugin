@@ -7,12 +7,13 @@
  *
  * Usage:
  *   npx tsx create-shipment.ts <payload-folder> --target <tenantKey> \
- *       [--journey-id <id>] [--service-key <key>] [--name <eventName>] \
+ *       --service-key <key> [--journey-id <id>] [--name <eventName>] \
  *       [--lo-code <UNLOCODE>] [--collaborator <tenantKey> ...]
  *
  * Example:
  *   npx tsx create-shipment.ts ./payloads/handshake/request-service \
- *       --target example-taker --collaborator example-collaborator
+ *       --target example-taker --service-key inland_transport \
+ *       --collaborator example-collaborator
  */
 import {
   run,
@@ -34,7 +35,7 @@ run(async (config) => {
   const folder = positional[0];
   const target = flagString(flags, 'target');
   const existingJourneyId = flagString(flags, 'journey-id');
-  const serviceKey = flagString(flags, 'service-key') ?? 'inland_transport';
+  const serviceKey = flagString(flags, 'service-key');
   const name = flagString(flags, 'name') ?? 'Service Request';
   const loCode = flagString(flags, 'lo-code');
   const collaboratorKeys = flagValues(argv, 'collaborator').map((key) => key.trim());
@@ -42,13 +43,16 @@ run(async (config) => {
   if ('journey-id' in flags && !existingJourneyId?.trim()) {
     throw new Error('--journey-id requires a value');
   }
+  if (!serviceKey?.trim()) {
+    throw new Error('--service-key requires a value');
+  }
   if (collaboratorKeys.some((key) => !key)) {
     throw new Error('--collaborator requires a value');
   }
   if (!folder || !target) {
     throw new Error(
       'Usage: npx tsx create-shipment.ts <payload-folder> --target <tenantKey> ' +
-        '[--journey-id <id>] [--service-key <key>] [--name <eventName>] ' +
+        '--service-key <key> [--journey-id <id>] [--name <eventName>] ' +
         '[--lo-code <UNLOCODE>] [--collaborator <tenantKey> ...]',
     );
   }

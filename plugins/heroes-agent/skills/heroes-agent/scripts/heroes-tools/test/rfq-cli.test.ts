@@ -86,7 +86,8 @@ test('requester can resume RFQ on an existing journey through the public launche
   try {
     const port = await listen(server);
     const result = await runTool(workspace, port, [
-      'request-quotation.ts', payload, '--target', 'globex', '--journey-id', 'journey-rfq-1',
+      'request-quotation.ts', payload, '--target', 'globex', '--service-key', 'inland_transport',
+      '--journey-id', 'journey-rfq-1',
     ]);
 
     assert.equal(result.code, 0, result.stderr || result.stdout);
@@ -120,6 +121,32 @@ test('requester can resume RFQ on an existing journey through the public launche
   }
 });
 
+test('missing RFQ service key fails before any public request', async () => {
+  const workspace = mkdtempSync(join(tmpdir(), 'heroes-rfq-service-key-missing-'));
+  const payload = binaryPayload(workspace, 'request', 'request.pdf', 'synthetic RFQ request bytes');
+  let requestCount = 0;
+  const server = createServer((_request, response) => {
+    requestCount += 1;
+    response.writeHead(201, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ data: { id: 'unexpected' } }));
+  });
+
+  try {
+    const port = await listen(server);
+    const result = await runTool(workspace, port, [
+      'request-quotation.ts', payload, '--target', 'globex',
+    ]);
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /--service-key requires a value/);
+    assert.equal(requestCount, 0);
+  } finally {
+    await new Promise<void>((resolveClose, rejectClose) =>
+      server.close((error) => (error ? rejectClose(error) : resolveClose())),
+    );
+    rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
 test('missing RFQ journey ID fails before any public request', async () => {
   const workspace = mkdtempSync(join(tmpdir(), 'heroes-rfq-request-missing-'));
   const payload = binaryPayload(workspace, 'request', 'request.pdf', 'synthetic RFQ request bytes');
@@ -133,7 +160,8 @@ test('missing RFQ journey ID fails before any public request', async () => {
   try {
     const port = await listen(server);
     const result = await runTool(workspace, port, [
-      'request-quotation.ts', payload, '--target', 'globex', '--journey-id',
+      'request-quotation.ts', payload, '--target', 'globex', '--service-key', 'inland_transport',
+      '--journey-id',
     ]);
     assert.equal(result.code, 1);
     assert.match(result.stderr, /--journey-id requires a value/);
@@ -160,7 +188,8 @@ test('blank RFQ journey IDs fail before any public request', async () => {
     try {
       const port = await listen(server);
       const result = await runTool(workspace, port, [
-        'request-quotation.ts', payload, '--target', 'globex', '--journey-id', journeyId,
+        'request-quotation.ts', payload, '--target', 'globex', '--service-key', 'inland_transport',
+        '--journey-id', journeyId,
       ]);
       assert.equal(result.code, 1);
       assert.match(result.stderr, /--journey-id requires a value/);

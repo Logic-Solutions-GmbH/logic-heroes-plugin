@@ -40,17 +40,21 @@ the test record remains in the test tenants.
 
 Public-launcher tests first showed that RFQ recovery still called
 `POST /journeys`, a missing `--journey-id` value still made remote requests,
-and the default service key did not match the road service used by the smoke
-scenario.
+and the default service key was `oceanfreight` instead of the live-proven
+`ltl_pickup_origin`.
 
 After the minimal fixes:
 
 - `--journey-id` skips journey creation and preserves service, event, and
   attachment behavior;
 - a missing recovery value exits before any request;
-- the default service key is the canonical `inland_transport`;
+- the default service key is `ltl_pickup_origin`;
 - public-launcher tests cover request, quote and re-quote, counter, acceptance,
   and watcher download behavior.
+
+Update 2026-10-21 (#73): `request-quotation.ts` now requires an explicit
+`--service-key`, and new road work uses the canonical `inland_transport`.
+This run predates that change; `inland_transport` has no live RFQ proof yet.
 
 The pre-live full package gate passed 15 of 15 tests, typecheck, helper
 integration, and diff checks.

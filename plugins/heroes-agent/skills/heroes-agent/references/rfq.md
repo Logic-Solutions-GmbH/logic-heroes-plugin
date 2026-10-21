@@ -12,7 +12,7 @@ WITHDRAWN, or EXPIRED when Heroes permits the actor's transition.
 
 | Step | Actor | Bundled tool |
 | --- | --- | --- |
-| REQUESTED | requester/maker | `request-quotation.ts <payload-folder> --target <provider-key>` |
+| REQUESTED | requester/maker | `request-quotation.ts <payload-folder> --target <provider-key> --service-key <chosen-key>` |
 | QUOTED / re-QUOTED | provider/taker | `quote-request.ts <service-id> <quote-folder> --provider-ref <ref>` |
 | COUNTERED | requester/maker | `counter-quotation.ts <service-id> --message <text>` |
 | ACCEPTED | requester/maker | `accept-quotation.ts <service-id> --message <text>` |
