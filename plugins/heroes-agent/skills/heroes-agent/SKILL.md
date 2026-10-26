@@ -61,6 +61,7 @@ Read `references/handshake.md` for legal steps and guards.
 
 - Bind the shipment's assets (for example the purchase order the shipment ships against) to the service that carries the work and its milestones: `link-service-assets.ts <service-id> --asset purchase_order:purchase_order_number:<number> [--expect-assignee <tenantKey>]`. It finds or creates each asset by external reference and adds only missing manifest entries, so a retry duplicates nothing.
 - Never bind assets to an integration-only (shadow) service, and never post milestones on one. Asset-based tracking shows a service only through its assets.
+- A purchase order is asset type `purchase_order` linked with manifest role `document`, never cargo. Check the representation with `asset-status.ts --ref <po> --service <id>` (read-only).
 - Bind right after creating the service. If the asset is not known yet, bind it when it becomes known; never invent a placeholder.
 
 Read `references/assets.md` for the endpoints, roles, and guards.

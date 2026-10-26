@@ -30,9 +30,26 @@ For each `--asset` the tool:
 
 A re-run creates no asset and no manifest entry. `--dry-run` performs only the reads. `--expect-assignee` refuses to write unless the service's assignee is the named tenant, which keeps assets off the wrong service.
 
-The role defaults from the asset type: vessel, plane, truck, train, barge, and trailer are `transport`; container, box, pallet, and cargo are `cargo`; document types such as `purchase_order`, `hbl`, `mbl`, `booking`, and `customs_declaration` are `document`. `--role` overrides it for every asset in the call. Heroes lists a bound document under `GET /services/{id}/assets` as well as in the manifest.
+The role defaults from the asset type: vessel, plane, truck, train, barge, and trailer are `transport`; container, box, pallet, and cargo are `cargo`; document types such as `purchase_order`, `hbl`, `mbl`, `booking`, and `customs_declaration` are `document`. `--role` overrides it for every asset in the call.
 
 The same steps are available to scripts as `declareAsset`, `getServiceManifest`, and `linkServiceAssets` in `lib.ts`. `service-status.ts` prints the manifest.
+
+## Representing a document such as a purchase order
+
+The documented API (OpenAPI 0.1.282) has exactly two places that say what an asset is:
+
+- **Asset type.** `POST /assets` `type` is "an asset-type code from GET /api/catalog/asset-types". A catalog entry is `{ code, name, description }`, so no field marks a type as documental or physical. For a PO, use `purchase_order` ("Purchase Order"). `GET /catalog/reference-types?asset_type=purchase_order` lists `purchase_order_number` for it, and `GET /catalog/asset-subtypes?asset_type=purchase_order` lists none.
+- **Manifest role.** `POST /services/{id}/assets/manifest` `entries[].role` is an enum: `cargo | transport | document`. It is the only documented way to say that an asset is a document on a service. Bind a PO with `role: document`.
+
+Do not bind a document with `POST /services/{id}/assets` (`cargoAssetIds`). That endpoint "binds one or more cargo assets to a service: each asset joins the service as cargo". Do not derive cargo, pallets, or packages from a PO's line items. Add cargo and container assets when they are actually known.
+
+**Known gap.** `GET /services/{id}/assets` is documented only as "Get all assets (cargo and transport) associated with a service", and its 200 response has no schema. In practice it also returns document-role manifest entries, as `cargoAssetId`/`cargoAsset` with no role field. A reader of that view alone sees the PO as cargo. `GET /services/{id}/assets/manifest` ("Covers all roles") keeps the `document` role. The API documents no other classification to set, so do not change a correct asset or link to change how that view looks.
+
+Check with `asset-status.ts --ref <refId> ... --service <serviceId> ...` (read-only). It prints:
+
+- each asset's type, catalog entry, and refs, with whether each ref type is valid for the type;
+- each service's manifest roles next to its cargo/transport bindings;
+- a note when a `document` entry also appears as `cargoAssetId`.
 
 ## When to bind
 
