@@ -215,6 +215,14 @@ node <plugin-root>/scripts/run-tool.mjs upload-attachment.ts <event-id> <payload
 
 This command uses the multipart attachment endpoint. It is the public validation seam for an attachment-only watcher change.
 
+To make a service visible in asset-based tracking, declare the shipment's assets and bind them to it. The tool finds or creates each asset by its external reference and adds only the missing manifest entries, so a retry is safe:
+
+```text
+node <plugin-root>/scripts/run-tool.mjs link-service-assets.ts <service-id> --asset purchase_order:purchase_order_number:<po-number> [--expect-assignee <tenant-key>] [--dry-run]
+```
+
+Bind assets only to the service that carries the work and its milestones, never to an integration-only service. To check how assets are typed and bound (read-only), run `asset-status.ts --ref <refId> --service <service-id>`. See `skills/heroes-agent/references/assets.md`.
+
 If journey creation succeeds but a later shipment step fails, resume on that journey without creating a duplicate:
 
 ```text

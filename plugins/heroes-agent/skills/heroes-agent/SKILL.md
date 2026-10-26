@@ -57,6 +57,15 @@ If a peer already exists at `<tenant-key>/` or at the older `run/<tenant-key>/`,
 
 Read `references/handshake.md` for legal steps and guards.
 
+## Assets
+
+- Bind the shipment's assets (for example the purchase order the shipment ships against) to the service that carries the work and its milestones: `link-service-assets.ts <service-id> --asset purchase_order:purchase_order_number:<number> [--expect-assignee <tenantKey>]`. It finds or creates each asset by external reference and adds only missing manifest entries, so a retry duplicates nothing.
+- Never bind assets to an integration-only (shadow) service, and never post milestones on one. Asset-based tracking shows a service only through its assets.
+- A purchase order is asset type `purchase_order` linked with manifest role `document`, never cargo. Check the representation with `asset-status.ts --ref <po> --service <id>` (read-only).
+- Bind right after creating the service. If the asset is not known yet, bind it when it becomes known; never invent a placeholder.
+
+Read `references/assets.md` for the endpoints, roles, and guards.
+
 ## Solicited RFQ
 
 - Requester/maker: stage shipping instructions, choose the service, and run `request-quotation.ts <payload-folder> --service-key <chosen-key> --target <provider-key> [--carriage <json-file>]`. Put carriage in a file, never shell text. After a quote, summarize its terms and ask whether to accept, counter, or reject. Run `counter-quotation.ts` or `accept-quotation.ts` only from that decision.
@@ -111,4 +120,4 @@ This is separate from HANDSHAKE (`create-shipment.ts` uses Heroes JSON, not Serv
 
 ## Boundaries
 
-Current scope is HANDSHAKE, solicited one-to-one RFQ, and filing a held quote as an OFFER. Instantiating an offer into a shipment (`POST /journeys/{offerId}/instantiate`) is out of scope: it requires `RFQ` + `ACCEPTED` on every service, and a direct-quote filing books nothing. There is no MCP server, hosted authentication flow, dashboard, hook, or subagent requirement. Two counterparties must use separate peer workspaces and credentials; never impersonate both sides from one peer. See `references/architecture.md`, `references/domain-model.md`, and `references/portability.md`.
+Current scope is HANDSHAKE, solicited one-to-one RFQ, and filing a held quote as an OFFER. Instantiating an offer into a shipment (`POST /journeys/{offerId}/instantiate`) is out of scope: it requires `RFQ` + `ACCEPTED` on every service, and a direct-quote filing books nothing. There is no MCP server, hosted authentication flow, dashboard, hook, or subagent requirement. Two counterparties must use separate peer workspaces and credentials; never impersonate both sides from one peer. See `references/architecture.md`, `references/domain-model.md`, `references/assets.md`, and `references/portability.md`.

@@ -351,6 +351,18 @@ test('service-status shows declared carriage and the server consistency view', a
       }
       if (request.url === '/api/services/service-status-1/strategies') return json(response, 200, []);
       if (request.url === '/api/services/service-status-1/events') return json(response, 200, []);
+      if (request.url === '/api/services/service-status-1/assets/manifest') {
+        return json(response, 200, {
+          entries: [
+            {
+              id: 'm-1',
+              assetId: 127916,
+              role: 'document',
+              asset: { id: 127916, type: 'purchase_order', name: 'Purchase Order 4774010356' },
+            },
+          ],
+        });
+      }
       json(response, 404, {});
     },
     async ({ workspace, port, requests }) => {
@@ -361,8 +373,10 @@ test('service-status shows declared carriage and the server consistency view', a
         '/api/services/service-status-1',
         '/api/services/service-status-1/strategies',
         '/api/services/service-status-1/events',
+        '/api/services/service-status-1/assets/manifest',
       ]);
       assert.match(result.stdout, /Carriage/);
+      assert.match(result.stdout, /\[127916\] document: purchase_order Purchase Order 4774010356/);
       assert.match(result.stdout, /"containerAllocation": "shared"/);
       assert.match(result.stdout, /Carriage consistency/);
       assert.match(result.stdout, /"computed": "consistent"/);

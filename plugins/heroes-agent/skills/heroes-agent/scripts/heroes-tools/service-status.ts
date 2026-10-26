@@ -1,7 +1,7 @@
 /**
  * service-status — one-shot, full picture of a service.
  *
- * Folds strategies + events + attachments into a single readable dump, so you
+ * Folds asset manifest + strategies + events + attachments into a single readable dump, so you
  * don't hand-run separate strategies → events → per-event attachments calls.
  * Pass --download to also pull every attachment to disk.
  *
@@ -18,6 +18,7 @@ import {
   requireApiKey,
   fetchServiceCarriage,
   fetchSnapshot,
+  getServiceManifest,
   downloadAttachment,
   heading,
   kv,
@@ -51,6 +52,16 @@ run(async (config) => {
       ? JSON.stringify(carriageView.carriageConsistency, null, 2)
       : '  (not available)',
   );
+
+  heading('Assets (manifest)');
+  // A manifest read failure must not hide the rest of the status picture.
+  const manifest = await getServiceManifest(config, { apiKey, serviceId }).catch(() => null);
+  if (manifest === null) console.log('  (not available)');
+  else if (manifest.length === 0) console.log('  (none linked)');
+  for (const entry of manifest ?? []) {
+    const asset = (entry.asset ?? {}) as { type?: string; name?: string };
+    console.log(`  • [${entry.assetId}] ${entry.role}: ${asset.type ?? ''} ${asset.name ?? ''}`.trimEnd());
+  }
 
   heading('Strategies');
   if (snap.instances.length === 0) console.log('  (none)');

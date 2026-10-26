@@ -18,7 +18,11 @@ function summaryFromSource(source: string, fileName: string): string {
     .split('\n')
     .map((line) => line.replace(/^\s*\*\s?/, '').trim())
     .filter(Boolean);
-  const dashLine = lines.find((line) => line.startsWith('—') || line.startsWith('-'));
+  // Prefer the `<tool-name> — <summary>` headline; usage continuation lines
+  // such as `--tenant-key …` also start with a dash and must not win.
+  const headline = lines[0]?.match(/^\S+\s+—\s+(.+)$/);
+  if (headline) return headline[1];
+  const dashLine = lines.find((line) => line.startsWith('—') || (line.startsWith('-') && !line.startsWith('--')));
   if (dashLine) return dashLine.replace(/^—\s*/, '').replace(/^-\s*/, '');
   return lines[0] ?? fileName;
 }
