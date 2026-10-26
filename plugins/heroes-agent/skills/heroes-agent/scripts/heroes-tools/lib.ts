@@ -266,6 +266,230 @@ export async function addServiceCollaborator(
 }
 
 // ---------------------------------------------------------------------------
+// Assets: declare once, bind to a service manifest
+// ---------------------------------------------------------------------------
+//
+// OpenAPI: https://api.logicheroes.network/openapi (`info.version` 0.1.282).
+//   GET  /assets/{ref_id}                 look up by any external reference
+//   POST /assets                          { type, name, externalRef: { refType, refId } }
+//                                         200 = existing asset returned, 201 = created
+//   GET  /services/{id}/assets/manifest   manifest entries (asset + role)
+//   POST /services/{id}/assets/manifest   { entries: [{ assetId, role }] },
+//                                         idempotent on (service, asset, role)
+// None of these is deprecated. POST /services/{id}/assets (cargo-only binding)
+// is not used because it cannot express the document role.
+
+/** `externalRef.refType` values accepted by POST /assets (OpenAPI 0.1.282). */
+export const ASSET_REF_TYPES = [
+  'container_number', 'plate_number', 'imo', 'mmsi', 'plane_number', 'air_waybill',
+  'barcode', 'qr_code', 'custom_ref', 'document_number', 'booking_number',
+  'master_bill_number', 'house_bill_number', 'master_awb_number', 'house_awb_number',
+  'delivery_order_number', 'purchase_order_number', 'shipment_file_number',
+  'transport_order_number',
+] as const;
+export type AssetRefType = (typeof ASSET_REF_TYPES)[number];
+
+export const MANIFEST_ROLES = ['cargo', 'transport', 'document'] as const;
+export type ManifestRole = (typeof MANIFEST_ROLES)[number];
+
+const TRANSPORT_ASSET_TYPES = new Set(['vessel', 'plane', 'truck', 'train', 'barge', 'trailer']);
+const CARGO_ASSET_TYPES = new Set(['container', 'box', 'pallet', 'cargo']);
+
+/**
+ * Manifest role implied by an asset-type code: vehicles are transport, load
+ * units are cargo, every other catalog type (purchase_order, hbl, mbl, booking,
+ * customs_declaration, …) is a document. `--role` overrides this.
+ */
+export function defaultManifestRole(assetType: string): ManifestRole {
+  if (TRANSPORT_ASSET_TYPES.has(assetType)) return 'transport';
+  if (CARGO_ASSET_TYPES.has(assetType)) return 'cargo';
+  return 'document';
+}
+
+export interface AssetSpec {
+  type: string;
+  refType: AssetRefType;
+  refId: string;
+  name?: string;
+}
+
+/** Parse `<assetType>:<refType>:<refId>`; the refId may itself contain colons. */
+export function parseAssetSpec(spec: string): AssetSpec {
+  const [type, refType, ...rest] = spec.split(':');
+  const refId = rest.join(':').trim();
+  if (!type?.trim() || !refType?.trim() || !refId) {
+    throw new Error(`--asset "${spec}" must be <assetType>:<refType>:<refId>, e.g. purchase_order:purchase_order_number:4774010356`);
+  }
+  if (!(ASSET_REF_TYPES as readonly string[]).includes(refType.trim())) {
+    throw new Error(`--asset "${spec}": unknown refType "${refType}". Use one of: ${ASSET_REF_TYPES.join(', ')}`);
+  }
+  return { type: type.trim(), refType: refType.trim() as AssetRefType, refId };
+}
+
+export interface HeroesAsset {
+  id: number;
+  type?: string;
+  name?: string;
+  externalRefs: { refType: string; refId: string }[];
+  raw: unknown;
+}
+
+function asRecord(value: unknown): Record<string, any> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, any>) : undefined;
+}
+
+/** Normalise the asset payloads Heroes returns (`{asset}` wrapper or bare asset; camel or snake refs). */
+export function normaliseAsset(value: unknown): HeroesAsset {
+  const outer = asRecord(value) ?? {};
+  const asset = asRecord(outer.asset) ?? outer;
+  const id = Number(asset.id ?? asset.assetId);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error(`Heroes asset response has no numeric id: ${JSON.stringify(value).slice(0, 300)}`);
+  }
+  const refsSource =
+    asset.externalRefs ?? asset.externalReferences ?? asset.refs ?? asset.external_refs ??
+    outer.externalRefs ?? outer.refs ?? (asset.externalRef ? [asset.externalRef] : []);
+  const externalRefs = (Array.isArray(refsSource) ? refsSource : [])
+    .map((ref: any) => ({
+      refType: String(ref?.refType ?? ref?.ref_type ?? ''),
+      refId: String(ref?.refId ?? ref?.ref_id ?? ''),
+    }))
+    .filter((ref) => ref.refType && ref.refId);
+  const type = asset.type ?? asset.assetType ?? asset.asset_type;
+  return { id, type: typeof type === 'string' ? type : undefined, name: asset.name, externalRefs, raw: value };
+}
+
+/** GET /assets/{refId}; null on 404. Matches on refId alone, so callers must check refType and type. */
+export async function findAssetByRef(
+  config: Config,
+  args: { apiKey: string; refId: string },
+): Promise<HeroesAsset | null> {
+  try {
+    const data = await api(config, {
+      method: 'GET',
+      path: `/assets/${encodeURIComponent(args.refId)}`,
+      apiKey: args.apiKey,
+    });
+    return normaliseAsset(data);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+export interface DeclaredAsset {
+  asset: HeroesAsset;
+  /** True only when this call made Heroes create the asset (201). */
+  created: boolean;
+  /** How the asset was found: an existing lookup hit, POST returning the existing one (200), or a new one (201). */
+  source: 'lookup' | 'post-existing' | 'post-created';
+}
+
+function assertSameAsset(spec: AssetSpec, asset: HeroesAsset): void {
+  const hasRef = asset.externalRefs.some((ref) => ref.refType === spec.refType && ref.refId === spec.refId);
+  const typeMatches = !asset.type || asset.type === spec.type;
+  if (!hasRef || !typeMatches) {
+    throw new Error(
+      `Heroes already has asset ${asset.id} (type ${asset.type ?? '?'}) under reference "${spec.refId}", ` +
+        `but not as ${spec.type} / ${spec.refType}. Refusing to create a duplicate or bind the wrong asset; ` +
+        'resolve it by hand.',
+    );
+  }
+}
+
+/**
+ * Find-or-create one asset by its external reference. Never creates a second
+ * asset for a reference Heroes already knows: the lookup runs first, and POST
+ * /assets itself returns the existing asset (200) for a known reference.
+ */
+export async function declareAsset(
+  config: Config,
+  args: { apiKey: string; spec: AssetSpec; name: string; dryRun?: boolean },
+): Promise<DeclaredAsset | { planned: { method: 'POST'; path: '/assets'; body: unknown } }> {
+  const { spec } = args;
+  const existing = await findAssetByRef(config, { apiKey: args.apiKey, refId: spec.refId });
+  if (existing) {
+    assertSameAsset(spec, existing);
+    return { asset: existing, created: false, source: 'lookup' };
+  }
+  const body = { type: spec.type, name: args.name, externalRef: { refType: spec.refType, refId: spec.refId } };
+  if (args.dryRun) return { planned: { method: 'POST', path: '/assets', body } };
+  const { status, data } = await requestJson<unknown>(config, {
+    method: 'POST',
+    path: '/assets',
+    apiKey: args.apiKey,
+    body,
+  });
+  const asset = normaliseAsset(data);
+  if (asset.externalRefs.length > 0) assertSameAsset(spec, asset);
+  return { asset, created: status === 201, source: status === 201 ? 'post-created' : 'post-existing' };
+}
+
+export interface ManifestEntry {
+  assetId: number;
+  role: string;
+  asset?: unknown;
+}
+
+/** GET /services/{id}/assets/manifest, normalised to `{ assetId, role }` entries. */
+export async function getServiceManifest(
+  config: Config,
+  args: { apiKey: string; serviceId: string },
+): Promise<ManifestEntry[]> {
+  const data = await api<any>(config, {
+    method: 'GET',
+    path: `/services/${args.serviceId}/assets/manifest`,
+    apiKey: args.apiKey,
+  });
+  const list = Array.isArray(data) ? data : data?.manifest ?? data?.entries ?? [];
+  return (Array.isArray(list) ? list : []).map((entry: any) => ({
+    assetId: Number(entry?.assetId ?? entry?.asset_id ?? entry?.asset?.id),
+    role: String(entry?.role ?? ''),
+    asset: entry?.asset,
+  }));
+}
+
+export interface LinkServiceAssetsResult {
+  serviceId: string;
+  added: { assetId: number; role: ManifestRole }[];
+  alreadyLinked: { assetId: number; role: ManifestRole }[];
+  manifest: ManifestEntry[];
+}
+
+/**
+ * Bind assets to a service manifest. Reads the manifest first and POSTs only
+ * the missing (asset, role) pairs, then reads it back and fails unless every
+ * requested pair is present. Safe to re-run: a retry adds nothing.
+ */
+export async function linkServiceAssets(
+  config: Config,
+  args: { apiKey: string; serviceId: string; entries: { assetId: number; role: ManifestRole }[]; dryRun?: boolean },
+): Promise<LinkServiceAssetsResult> {
+  const before = await getServiceManifest(config, args);
+  const present = (entry: { assetId: number; role: string }, manifest: ManifestEntry[]) =>
+    manifest.some((m) => m.assetId === entry.assetId && m.role === entry.role);
+  const missing = args.entries.filter((entry) => !present(entry, before));
+  const alreadyLinked = args.entries.filter((entry) => present(entry, before));
+  if (missing.length === 0 || args.dryRun) {
+    return { serviceId: args.serviceId, added: args.dryRun ? missing : [], alreadyLinked, manifest: before };
+  }
+  await api(config, {
+    method: 'POST',
+    path: `/services/${args.serviceId}/assets/manifest`,
+    apiKey: args.apiKey,
+    body: { entries: missing.map(({ assetId, role }) => ({ assetId, role })) },
+  });
+  const after = await getServiceManifest(config, args);
+  const absent = args.entries.filter((entry) => !present(entry, after));
+  if (absent.length > 0) {
+    throw new Error(
+      `Manifest of service ${args.serviceId} is missing ${absent.map((e) => `${e.assetId}/${e.role}`).join(', ')} after POST`,
+    );
+  }
+  return { serviceId: args.serviceId, added: missing, alreadyLinked, manifest: after };
+}
+
+// ---------------------------------------------------------------------------
 // Payload folders & attachments
 // ---------------------------------------------------------------------------
 
